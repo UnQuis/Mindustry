@@ -22,7 +22,8 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Negative tests for truncation, checksum, trailing bytes, invalid flags and malformed container data.
 - [x] Validated read/write composition for current plain-tile `.msav` streams; unsupported building/entity/custom records are framed and skipped or rejected without data loss.
 - [x] Content header mapping by Java `ContentType` ordinal and name.
-- [ ] Building/entity/custom-data chunks and stateful saves.
+- [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and null TypeIO configs.
+- [ ] Building/entity/custom-data chunks, non-null TypeIO configs and stateful saves.
 
 ## Not ported yet
 

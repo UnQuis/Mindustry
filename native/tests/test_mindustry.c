@@ -2,11 +2,53 @@
 #include "mindustry_format.h"
 #include "mindustry_save.h"
 #include "mindustry_deflate.h"
+#include "mindustry_schematic.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void test_schematic_codec(void){
+    static char *keys[] = {"name", "labels"};
+    static char *values[] = {"native schematic", "[]"};
+    static char *blocks[] = {"conveyor", "duo"};
+    static const McSchematicTile tiles[] = {
+        {.block = 0, .x = 0, .y = 0, .rotation = 0},
+        {.block = 1, .x = 1, .y = 0, .rotation = 2},
+        {.block = 0, .x = -1, .y = 3, .rotation = 1}
+    };
+    McSchematic source = {
+        .width = 8,
+        .height = 6,
+        .tags = {.keys = keys, .values = values, .count = 2},
+        .blocks = blocks,
+        .block_count = 2,
+        .tiles = (McSchematicTile *)tiles,
+        .tile_count = 3
+    };
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_schematic_write(&source, &encoded) == MC_OK);
+    assert(encoded.size > 5 && memcmp(encoded.data, "msch\x01", 5) == 0);
+
+    McSchematic decoded = {0};
+    assert(mc_schematic_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.width == source.width && decoded.height == source.height);
+    assert(decoded.tags.count == 2 && strcmp(decoded.tags.values[0], "native schematic") == 0);
+    assert(decoded.block_count == 2 && strcmp(decoded.blocks[1], "duo") == 0);
+    assert(decoded.tile_count == 3);
+    for(size_t i = 0; i < decoded.tile_count; i++){
+        assert(decoded.tiles[i].block == tiles[i].block);
+        assert(decoded.tiles[i].x == tiles[i].x && decoded.tiles[i].y == tiles[i].y);
+        assert(decoded.tiles[i].rotation == tiles[i].rotation);
+    }
+
+    uint8_t invalid_header[6] = {'m', 's', 'c', 'h', 2, 0};
+    assert(mc_schematic_read(invalid_header, sizeof(invalid_header), &decoded) == MC_FORMAT_ERROR);
+    mc_schematic_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+}
 
 static void test_world_bounds_and_clear(void){
     McWorld world = {0};
@@ -347,6 +389,7 @@ static void test_content_table(void){
 }
 
 int main(void){
+    test_schematic_codec();
     test_world_bounds_and_clear();
     test_java_map_section_codec();
     test_java_save_container();

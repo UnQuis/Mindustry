@@ -4,11 +4,49 @@
 #include "mindustry_deflate.h"
 #include "mindustry_schematic.h"
 #include "mindustry_png.h"
+#include "mindustry_map.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void test_map_section_entity_records(void){
+    McMapSection source = {0};
+    assert(mc_map_section_init(&source, 3, 2) == MC_OK);
+    source.tiles[2].tile.floor = MC_FLOOR_SAND;
+    source.tiles[3].tile.block = MC_BLOCK_CONVEYOR;
+    source.tiles[3].flags = 4;
+    source.tiles[3].data = 7;
+    source.tiles[3].floor_data = 8;
+    source.tiles[3].overlay_data = 9;
+    source.tiles[3].extra_data = 0x12345678;
+    source.tiles[4].tile.block = MC_BLOCK_DUO;
+    source.tiles[4].flags = 1;
+    source.tiles[4].entity_center = true;
+    source.tiles[4].entity_size = 4;
+    source.tiles[4].entity_data = malloc(4);
+    assert(source.tiles[4].entity_data != NULL);
+    static const uint8_t entity_fixture[] = {0x03, 'a', 'b', 'c'};
+    memcpy(source.tiles[4].entity_data, entity_fixture, sizeof(entity_fixture));
+    source.tiles[5].tile.block = MC_BLOCK_DUO;
+    source.tiles[5].flags = 1;
+    source.tiles[5].entity_center = false;
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_map_section_write(&source, &encoded) == MC_OK);
+    McMapSection decoded = {0};
+    assert(mc_map_section_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.width == source.width && decoded.height == source.height);
+    assert(decoded.tiles[3].flags == 4 && decoded.tiles[3].extra_data == 0x12345678);
+    assert(decoded.tiles[4].entity_center && decoded.tiles[4].entity_size == 4);
+    assert(memcmp(decoded.tiles[4].entity_data, entity_fixture, sizeof(entity_fixture)) == 0);
+    assert(decoded.tiles[5].flags == 1 && !decoded.tiles[5].entity_center);
+    mc_map_section_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+    mc_map_section_destroy(&source);
+}
 
 static void test_png_map_image_codec(void){
     static const uint8_t pixels[] = {
@@ -443,6 +481,7 @@ static void test_content_table(void){
 }
 
 int main(void){
+    test_map_section_entity_records();
     test_png_map_image_codec();
     test_schematic_codec();
     test_world_bounds_and_clear();

@@ -11,6 +11,7 @@ This directory is the first migration milestone for a native C implementation of
 - Java-compatible MSAV headers, length-prefixed regions, string maps and modified UTF-8 helpers.
 - A dependency-free zlib/DEFLATE wrapper: stored-block writer plus stored/fixed/dynamic Huffman reader.
 - Validated read/write composition for current plain-tile `.msav` streams, including metadata and content-name mappings.
+- A lossless raw map-section codec for building entity chunks and tile data records.
 - A version-1 `msch` schematic codec for dictionary, tags, positions, rotations and raw TypeIO configs.
 - A pure-C PNG codec for RGB/RGBA map images with CRC validation and all PNG row filters.
 - Fixed 60 Hz stepping and a state hash for differential/conformance tests.

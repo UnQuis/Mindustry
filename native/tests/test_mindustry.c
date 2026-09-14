@@ -1,7 +1,9 @@
 #include "mindustry.h"
+#include "mindustry_format.h"
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 static void test_world_bounds_and_clear(void){
     McWorld world = {0};
@@ -13,6 +15,59 @@ static void test_world_bounds_and_clear(void){
     assert(mc_world_tile_const(&world, 0, 0)->floor == MC_FLOOR_SAND);
     mc_world_destroy(&world);
     assert(world.tiles == NULL);
+}
+
+static void test_java_map_section_codec(void){
+    McWorld world = {0};
+    assert(mc_world_init(&world, 3, 2) == MC_OK);
+
+    /* Six tiles are deliberately arranged into three floor and two block runs. */
+    world.tiles[0].floor = MC_FLOOR_STONE;
+    world.tiles[1].floor = MC_FLOOR_STONE;
+    world.tiles[2].floor = MC_FLOOR_SAND;
+    world.tiles[3].floor = MC_FLOOR_SAND;
+    world.tiles[4].floor = MC_FLOOR_SAND;
+    world.tiles[5].floor = MC_FLOOR_STONE;
+    world.tiles[4].block = MC_BLOCK_DUO;
+    world.tiles[5].block = MC_BLOCK_DUO;
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_map_write_section(&world, &encoded) == MC_OK);
+    static const uint8_t expected[] = {
+        0x00, 0x03, 0x00, 0x02,
+        0x00, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x01, 0x00, 0x00, 0x02,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x03,
+        0x00, 0x04, 0x00, 0x01
+    };
+    assert(encoded.size == sizeof(expected));
+    assert(memcmp(encoded.data, expected, sizeof(expected)) == 0);
+
+    McWorld decoded = {0};
+    assert(mc_map_read_section(&decoded, encoded.data, encoded.size) == MC_OK);
+    assert(decoded.width == 3 && decoded.height == 2);
+    for(size_t i = 0; i < 6; i++){
+        assert(decoded.tiles[i].floor == world.tiles[i].floor);
+        assert(decoded.tiles[i].overlay == world.tiles[i].overlay);
+        assert(decoded.tiles[i].block == world.tiles[i].block);
+    }
+
+    /* A decoder must reject truncation, trailing bytes and unsupported flags. */
+    assert(mc_map_read_section(&decoded, encoded.data, encoded.size - 1) == MC_FORMAT_ERROR);
+    uint8_t with_trailing_byte[sizeof(expected) + 1];
+    memcpy(with_trailing_byte, expected, sizeof(expected));
+    with_trailing_byte[sizeof(expected)] = 0;
+    assert(mc_map_read_section(&decoded, with_trailing_byte, sizeof(with_trailing_byte)) == MC_FORMAT_ERROR);
+    uint8_t with_entity_flag[sizeof(expected)];
+    memcpy(with_entity_flag, expected, sizeof(expected));
+    with_entity_flag[21] = 1;
+    assert(mc_map_read_section(&decoded, with_entity_flag, sizeof(with_entity_flag)) == MC_FORMAT_ERROR);
+
+    mc_world_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+    mc_world_destroy(&world);
 }
 
 static void test_inventory_capacity(void){
@@ -71,6 +126,7 @@ static void test_content_table(void){
 
 int main(void){
     test_world_bounds_and_clear();
+    test_java_map_section_codec();
     test_inventory_capacity();
     test_block_placement();
     test_deterministic_steps();

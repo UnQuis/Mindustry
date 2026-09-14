@@ -108,9 +108,10 @@ typedef enum McBlockId{
 } McBlockId;
 
 typedef struct McTile{
-    uint8_t floor;
-    uint8_t overlay;
-    uint8_t block;
+    /* Java map IDs are shorts; keeping 16-bit fields avoids truncating IDs. */
+    uint16_t floor;
+    uint16_t overlay;
+    uint16_t block;
 } McTile;
 
 typedef struct McWorld{

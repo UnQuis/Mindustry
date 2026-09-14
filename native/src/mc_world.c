@@ -39,7 +39,7 @@ void mc_world_destroy(McWorld *world){
 void mc_world_clear(McWorld *world, McFloor floor){
     if(world == NULL || world->tiles == NULL) return;
     for(size_t i = 0; i < (size_t)world->width * world->height; i++){
-        world->tiles[i] = (McTile){.floor = (uint8_t)floor, .overlay = 0, .block = MC_BLOCK_AIR};
+        world->tiles[i] = (McTile){.floor = (uint16_t)floor, .overlay = 0, .block = MC_BLOCK_AIR};
     }
 }
 

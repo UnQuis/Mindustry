@@ -107,7 +107,7 @@ McStatus mc_simulation_place_block(McSimulation *simulation, McBlockId block, Mc
 
     for(uint16_t dy = 0; dy < size; dy++){
         for(uint16_t dx = 0; dx < size; dx++){
-            mc_world_tile(&simulation->world, (uint16_t)(x + dx), (uint16_t)(y + dy))->block = (uint8_t)block;
+            mc_world_tile(&simulation->world, (uint16_t)(x + dx), (uint16_t)(y + dy))->block = (uint16_t)block;
         }
     }
     entity->tile_x = x;

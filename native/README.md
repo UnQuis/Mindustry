@@ -7,6 +7,7 @@ This directory is the first migration milestone for a native C implementation of
 - A C17, dependency-free deterministic simulation kernel.
 - Explicit world/tile, item/inventory, entity, block and tick APIs.
 - A small content table seeded from the current `Items.java` values.
+- A Java-compatible uncompressed map-section codec for plain tiles and RLE.
 - Fixed 60 Hz stepping and a state hash for differential/conformance tests.
 - A headless executable and tests that compile without Java, Gradle or SDL.
 - An optional SDL2 desktop shell (`make sdl`) that draws the current native state.

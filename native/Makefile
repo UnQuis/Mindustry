@@ -3,7 +3,7 @@ CFLAGS ?= -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 CPPFLAGS ?= -Iinclude
 LDFLAGS ?=
 
-CORE_SOURCES := src/mc_content.c src/mc_world.c src/mc_simulation.c
+CORE_SOURCES := src/mc_content.c src/mc_world.c src/mc_format.c src/mc_simulation.c
 CORE_OBJECTS := $(CORE_SOURCES:src/%.c=build/%.o)
 
 .PHONY: all test run sdl clean

@@ -21,7 +21,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Map, schematic and save readers/writers compatible with the Java formats.
+- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. The current codec only covers the uncompressed plain-tile section; it deliberately rejects building/entity/custom-data records instead of dropping them.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

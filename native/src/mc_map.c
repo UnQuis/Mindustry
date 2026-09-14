@@ -190,3 +190,31 @@ McStatus mc_map_section_read(const uint8_t *data, size_t size, McMapSection *sec
     *section = decoded;
     return MC_OK;
 }
+
+McStatus mc_map_section_apply_content_remap(McMapSection *section, const McContentRemap *remap, bool unknown_to_air){
+    if(section == NULL || remap == NULL || section->tiles == NULL || section->width == 0 || section->height == 0){
+        return MC_INVALID_ARGUMENT;
+    }
+    size_t total = tile_count(section);
+    for(size_t i = 0; i < total; i++){
+        const McMapTileRecord *tile = &section->tiles[i];
+        uint16_t ids[] = {tile->tile.floor, tile->tile.overlay, tile->tile.block};
+        for(size_t j = 0; j < sizeof(ids) / sizeof(ids[0]); j++){
+            int32_t mapped = mc_content_remap_find(remap, MC_CONTENT_BLOCK, ids[j]);
+            if(mapped < 0){
+                if(!unknown_to_air) return MC_NOT_FOUND;
+            }else if((uint32_t)mapped > UINT16_MAX){
+                return MC_CAPACITY_EXCEEDED;
+            }
+        }
+    }
+    for(size_t i = 0; i < total; i++){
+        McMapTileRecord *tile = &section->tiles[i];
+        uint16_t *ids[] = {&tile->tile.floor, &tile->tile.overlay, &tile->tile.block};
+        for(size_t j = 0; j < sizeof(ids) / sizeof(ids[0]); j++){
+            int32_t mapped = mc_content_remap_find(remap, MC_CONTENT_BLOCK, *ids[j]);
+            *ids[j] = mapped < 0 ? 0 : (uint16_t)mapped;
+        }
+    }
+    return MC_OK;
+}

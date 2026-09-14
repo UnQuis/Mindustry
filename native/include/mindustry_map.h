@@ -2,6 +2,7 @@
 #define MINDUSTRY_NATIVE_MAP_H
 
 #include "mindustry_format.h"
+#include "mindustry_save.h"
 
 #ifdef __cplusplus
 #error "The native Mindustry port is C, not C++."
@@ -30,5 +31,6 @@ MC_API McStatus mc_map_section_init(McMapSection *section, uint16_t width, uint1
 MC_API void mc_map_section_destroy(McMapSection *section);
 MC_API McStatus mc_map_section_write(const McMapSection *section, McBuffer *output);
 MC_API McStatus mc_map_section_read(const uint8_t *data, size_t size, McMapSection *section);
+MC_API McStatus mc_map_section_apply_content_remap(McMapSection *section, const McContentRemap *remap, bool unknown_to_air);
 
 #endif

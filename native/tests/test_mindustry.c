@@ -620,6 +620,14 @@ static void test_java_content_header(void){
     assert(mc_content_remap_find(&remap, MC_CONTENT_ITEM, 0) == -1);
     assert(mc_content_remap_find(&remap, MC_CONTENT_BLOCK, 0) == 1);
     assert(mc_content_remap_find(&remap, MC_CONTENT_BLOCK, 1) == 2);
+    McMapSection section = {0};
+    assert(mc_map_section_init(&section, 1, 1) == MC_OK);
+    section.tiles[0].tile.floor = 0;
+    section.tiles[0].tile.overlay = 1;
+    section.tiles[0].tile.block = 0;
+    assert(mc_map_section_apply_content_remap(&section, &remap, false) == MC_OK);
+    assert(section.tiles[0].tile.floor == 1 && section.tiles[0].tile.overlay == 2 && section.tiles[0].tile.block == 1);
+    mc_map_section_destroy(&section);
     mc_content_remap_destroy(&remap);
     mc_content_header_destroy(&decoded);
     mc_buffer_destroy(&encoded);

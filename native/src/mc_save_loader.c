@@ -223,12 +223,16 @@ McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed){
     if(save->markers.size != 0){
         status = write_blob_region(&stream, &save->markers);
     }else{
-        McMarkers empty = save->marker_data;
-        if(empty.root.kind != MC_UBJSON_OBJECT) mc_markers_init_empty(&empty);
+        McMarkers empty = {0};
+        const McMarkers *markers = &save->marker_data;
+        if(markers->root.kind != MC_UBJSON_OBJECT){
+            mc_markers_init_empty(&empty);
+            markers = &empty;
+        }
         mc_buffer_clear(&region);
-        status = mc_markers_write(&empty, &region);
+        status = mc_markers_write(markers, &region);
         if(status == MC_OK) status = mc_save_write_region(&stream, region.data, region.size);
-        if(empty.root.kind == MC_UBJSON_OBJECT && save->marker_data.root.kind != MC_UBJSON_OBJECT) mc_markers_destroy(&empty);
+        mc_markers_destroy(&empty);
     }
     if(status != MC_OK) goto cleanup;
     if(save->custom.size != 0){

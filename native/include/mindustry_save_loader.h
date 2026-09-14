@@ -3,6 +3,10 @@
 
 #include "mindustry_save.h"
 #include "mindustry_map.h"
+#include "mindustry_patches.h"
+#include "mindustry_entities.h"
+#include "mindustry_markers.h"
+#include "mindustry_custom.h"
 
 #ifdef __cplusplus
 #error "The native Mindustry port is C, not C++."
@@ -17,11 +21,15 @@ typedef struct McSaveFile{
     uint32_t version;
     McSaveTags meta;
     McSaveBlob patches;
+    McDataPatches patch_data;
     McContentHeader content;
     McMapSection map;
     McSaveBlob entities;
+    McEntitiesRegion entity_data;
     McSaveBlob markers;
+    McMarkers marker_data;
     McSaveBlob custom;
+    McCustomChunks custom_data;
 } McSaveFile;
 
 /* Loads the current MSAV region sequence and preserves unsupported regions as

@@ -1,4 +1,8 @@
 #include "mindustry.h"
+#include "mindustry_save.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 static const McItemDefinition item_definitions[MC_ITEM_COUNT] = {
     /* name, rgba, explosiveness, flammability, radioactivity, charge, hardness,
@@ -83,4 +87,88 @@ float mc_entity_radius(McEntityKind kind, McBlockId block){
     if(kind == MC_ENTITY_UNIT) return 4.0f;
     if(kind == MC_ENTITY_BULLET) return 1.0f;
     return 0.0f;
+}
+
+typedef struct McLegacyContentName{
+    const char *old_name;
+    const char *new_name;
+} McLegacyContentName;
+
+static const McLegacyContentName legacy_content_names[] = {
+    {"craters", "crater-stone"}, {"deepwater", "deep-water"},
+    {"water", "shallow-water"}, {"sand", "sand-floor"},
+    {"slag", "molten-slag"}, {"mass-conveyor", "payload-conveyor"},
+    {"vestige", "scepter"}, {"turbine-generator", "steam-generator"},
+    {"fabricator", "tank-fabricator"}, {"basic-reconstructor", "refabricator"},
+    {"rocks", "stone-wall"}, {"sporerocks", "spore-wall"},
+    {"icerocks", "ice-wall"}, {"dunerocks", "dune-wall"},
+    {"sandrocks", "sand-wall"}, {"shalerocks", "shale-wall"},
+    {"snowrocks", "snow-wall"}, {"saltrocks", "salt-wall"},
+    {"dirtwall", "dirt-wall"}, {"ignarock", "basalt"},
+    {"holostone", "dacite"}, {"holostone-wall", "dacite-wall"},
+    {"rock", "boulder"}, {"snowrock", "snow-boulder"},
+    {"cliffs", "stone-wall"}, {"craters", "crater-stone"}
+};
+
+const char *mc_content_name_fallback(uint8_t type, const char *name){
+    (void)type;
+    if(name == NULL) return NULL;
+    for(size_t i = 0; i < sizeof(legacy_content_names) / sizeof(legacy_content_names[0]); i++){
+        if(strcmp(legacy_content_names[i].old_name, name) == 0) return legacy_content_names[i].new_name;
+    }
+    return name;
+}
+
+void mc_content_remap_destroy(McContentRemap *remap){
+    if(remap == NULL) return;
+    for(size_t i = 0; i < remap->count; i++) free(remap->groups[i].ids);
+    free(remap->groups);
+    *remap = (McContentRemap){0};
+}
+
+McStatus mc_content_remap_build(const McContentHeader *saved, const McContentGroupView *current,
+                                size_t current_count, McContentRemap *remap){
+    if(saved == NULL || remap == NULL || (current == NULL && current_count != 0)) return MC_INVALID_ARGUMENT;
+    *remap = (McContentRemap){0};
+    if(saved->count == 0) return MC_OK;
+    remap->groups = calloc(saved->count, sizeof(*remap->groups));
+    if(remap->groups == NULL) return MC_OUT_OF_MEMORY;
+    remap->count = saved->count;
+    for(size_t i = 0; i < saved->count; i++){
+        const McContentGroup *source = &saved->groups[i];
+        McContentRemapGroup *destination = &remap->groups[i];
+        destination->type = source->type;
+        destination->count = source->count;
+        destination->ids = malloc(source->count * sizeof(*destination->ids));
+        if(destination->ids == NULL){
+            mc_content_remap_destroy(remap);
+            return MC_OUT_OF_MEMORY;
+        }
+        for(size_t j = 0; j < source->count; j++){
+            destination->ids[j] = -1;
+            const char *fallback = mc_content_name_fallback(source->type, source->names[j]);
+            for(size_t k = 0; k < current_count; k++){
+                if(current[k].type != source->type) continue;
+                for(size_t n = 0; n < current[k].count; n++){
+                    if(strcmp(current[k].names[n], source->names[j]) == 0 ||
+                       (fallback != NULL && strcmp(current[k].names[n], fallback) == 0)){
+                        destination->ids[j] = (int32_t)n;
+                        break;
+                    }
+                }
+                if(destination->ids[j] >= 0) break;
+            }
+        }
+    }
+    return MC_OK;
+}
+
+int32_t mc_content_remap_find(const McContentRemap *remap, uint8_t type, uint16_t saved_id){
+    if(remap == NULL) return -1;
+    for(size_t i = 0; i < remap->count; i++){
+        if(remap->groups[i].type == type){
+            return saved_id < remap->groups[i].count ? remap->groups[i].ids[saved_id] : -1;
+        }
+    }
+    return -1;
 }

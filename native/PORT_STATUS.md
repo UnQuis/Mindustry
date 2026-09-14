@@ -22,11 +22,12 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Negative tests for truncation, checksum, trailing bytes, invalid flags and malformed container data.
 - [x] Validated read/write composition for current `.msav` streams.
 - [x] Raw save loader/writer preserving patches, entity, marker and custom regions as opaque bytes.
-- [x] Content header mapping by Java `ContentType` ordinal and name.
+- [x] Semantic patch, entity/team-plan, UBJSON MapMarkers and custom-chunk codecs with raw-region preservation.
+- [x] Content header mapping and serialized-name remapping, including legacy block aliases.
 - [x] Lossless raw map-section codec for building entity chunks and tile data records.
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and raw TypeIO configs.
 - [x] Pure-C PNG RGB/RGBA codec with CRC validation and all five row filters.
-- [ ] Semantic building/entity/custom-data integration and stateful saves.
+- [ ] Apply decoded building/entity/team-plan/custom state to the native gameplay model and write stateful saves.
 
 ## Not ported yet
 
@@ -35,7 +36,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Semantic map/save integration: decode building state, entities, team plans, MapMarkers/objectives and custom chunk schemas. The raw MSAV loader now preserves these regions byte-for-byte, but the gameplay model does not consume them yet.
+- [ ] Native gameplay integration for decoded building state, entities, team plans, MapMarkers/objectives and custom chunk schemas. Serialization and lossless loading gates are implemented; the gameplay model does not consume every decoded field yet.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

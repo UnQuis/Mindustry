@@ -64,9 +64,10 @@ static void test_full_save_loader(void){
     static char *meta_values[] = {"loader-fixture", "2", "2"};
     static char *block_names[] = {"air", "core-shard", "mechanical-drill", "conveyor", "duo"};
     static McContentGroup content_group = {MC_CONTENT_BLOCK, block_names, 5};
-    static const uint8_t patches[] = {0,0,0,2, 0,0,0,0};
-    static const uint8_t entities[] = {0,0,0,0};
-    static const uint8_t markers[] = {'{', '}'};
+    static const uint8_t patches[] = {0,0,0,2, 0,0,0,0, 0,0,0,0};
+    static const uint8_t legacy_patches[] = {0};
+    static const uint8_t entities[] = {0,0, 0,0,0,0, 0,0,0,0};
+    static const uint8_t markers[] = {'{', 'i', 2, 'i', 'd', 'l', 0, 0, 0, 42, '}'};
     static const uint8_t custom[] = {0,0,0,0};
     McSaveFile source = {
         .version = 13,
@@ -90,7 +91,9 @@ static void test_full_save_loader(void){
     assert(loaded.map.tiles[3].entity_size == 3);
     assert(memcmp(loaded.map.tiles[3].entity_data, "xyz", 3) == 0);
     assert(loaded.entities.size == sizeof(entities) && memcmp(loaded.entities.data, entities, sizeof(entities)) == 0);
+    assert(loaded.entity_data.mapping_count == 0 && loaded.entity_data.record_count == 0);
     assert(loaded.markers.size == sizeof(markers) && memcmp(loaded.markers.data, markers, sizeof(markers)) == 0);
+    assert(loaded.marker_data.root.count == 1 && loaded.marker_data.root.values[0]->integer == 42);
 
     McBuffer rewritten;
     mc_buffer_init(&rewritten);
@@ -99,12 +102,141 @@ static void test_full_save_loader(void){
     assert(mc_save_file_load(rewritten.data, rewritten.size, &loaded_again) == MC_OK);
     assert(loaded_again.map.tiles[3].entity_size == 3);
     assert(memcmp(loaded_again.map.tiles[3].entity_data, "xyz", 3) == 0);
+    assert(loaded_again.marker_data.root.count == 1);
 
     mc_save_file_destroy(&loaded_again);
+
+    McBuffer raw_save, damaged_save;
+    mc_buffer_init(&raw_save);
+    mc_buffer_init(&damaged_save);
+    assert(mc_zlib_decompress(encoded.data, encoded.size, &raw_save) == MC_OK);
+    raw_save.data[7] = 14;
+    assert(mc_zlib_compress_stored(raw_save.data, raw_save.size, &damaged_save) == MC_OK);
+    McSaveFile unsupported = {0};
+    assert(mc_save_file_load(damaged_save.data, damaged_save.size, &unsupported) == MC_FORMAT_ERROR);
+    mc_buffer_clear(&raw_save);
+    assert(mc_zlib_decompress(encoded.data, encoded.size, &raw_save) == MC_OK);
+    assert(mc_buffer_write_u8(&raw_save, 0x7f) == MC_OK);
+    assert(mc_zlib_compress_stored(raw_save.data, raw_save.size, &damaged_save) == MC_OK);
+    McSaveFile trailing = {0};
+    assert(mc_save_file_load(damaged_save.data, damaged_save.size, &trailing) == MC_FORMAT_ERROR);
+    mc_buffer_destroy(&damaged_save);
+    mc_buffer_destroy(&raw_save);
+
+    source.version = 11;
+    source.patches = (McSaveBlob){(uint8_t *)legacy_patches, sizeof(legacy_patches)};
+    mc_buffer_clear(&encoded);
+    assert(mc_save_file_write(&source, &encoded) == MC_OK);
+    McSaveFile legacy_loaded = {0};
+    assert(mc_save_file_load(encoded.data, encoded.size, &legacy_loaded) == MC_OK);
+    assert(legacy_loaded.version == 11 && legacy_loaded.patch_data.legacy && legacy_loaded.patch_data.count == 0);
+    mc_save_file_destroy(&legacy_loaded);
+
+    source.version = 8;
+    source.patches = (McSaveBlob){0};
+    mc_buffer_clear(&encoded);
+    assert(mc_save_file_write(&source, &encoded) == MC_OK);
+    McSaveFile v8_loaded = {0};
+    assert(mc_save_file_load(encoded.data, encoded.size, &v8_loaded) == MC_OK);
+    assert(v8_loaded.version == 8 && v8_loaded.patches.size == 0);
+    mc_save_file_destroy(&v8_loaded);
+
     mc_save_file_destroy(&loaded);
     mc_buffer_destroy(&rewritten);
     mc_buffer_destroy(&encoded);
     mc_map_section_destroy(&map);
+}
+
+static void test_markers_codec(void){
+    static const uint8_t fixture[] = {'{', 'i', 2, 'i', 'd', 'l', 0, 0, 0, 42, '}'};
+    McMarkers markers = {0};
+    assert(mc_markers_read(fixture, sizeof(fixture), &markers) == MC_OK);
+    assert(markers.root.kind == MC_UBJSON_OBJECT && markers.root.count == 1);
+    assert(strcmp(markers.root.keys[0], "id") == 0);
+    assert(markers.root.values[0]->kind == MC_UBJSON_INT32 && markers.root.values[0]->integer == 42);
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_markers_write(&markers, &encoded) == MC_OK);
+    assert(memcmp(encoded.data, fixture, sizeof(fixture)) == 0);
+    mc_markers_destroy(&markers);
+    mc_buffer_destroy(&encoded);
+
+    static const uint8_t malformed[] = {'{', 'i', 1, 'x'};
+    assert(mc_markers_read(malformed, sizeof(malformed), &markers) == MC_FORMAT_ERROR);
+}
+
+static void test_entities_region_codec(void){
+    static char mapping_name[] = "custom-building";
+    static uint8_t config[] = {1, 0, 0, 0, 42};
+    static uint8_t record_data[] = {7, 0, 0, 0, 9, 0xaa};
+    McEntityMapping mapping = {.id = 33, .name = mapping_name};
+    McTeamPlan plan = {.team = 2, .x = -4, .y = 8, .rotation = 1, .block = 12,
+                       .config = config, .config_size = sizeof(config)};
+    McEntityRecord record = {.data = record_data, .size = sizeof(record_data)};
+    McEntitiesRegion source = {.mapping = &mapping, .mapping_count = 1, .plans = &plan,
+                               .plan_count = 1, .records = &record, .record_count = 1};
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_entities_write(&source, &encoded) == MC_OK);
+    McEntitiesRegion decoded = {0};
+    assert(mc_entities_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.mapping_count == 1 && decoded.mapping[0].id == 33);
+    assert(strcmp(decoded.mapping[0].name, mapping_name) == 0);
+    assert(decoded.plan_count == 1 && decoded.plans[0].team == 2);
+    assert(decoded.plans[0].x == -4 && decoded.plans[0].config_size == sizeof(config));
+    assert(memcmp(decoded.plans[0].config, config, sizeof(config)) == 0);
+    assert(decoded.record_count == 1 && decoded.records[0].size == sizeof(record_data));
+    assert(memcmp(decoded.records[0].data, record_data, sizeof(record_data)) == 0);
+    mc_entities_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+}
+
+static void test_custom_chunks_codec(void){
+    static char name[] = "native-test";
+    static uint8_t bytes[] = {9, 8, 7};
+    McCustomChunk chunk = {.name = name, .data = bytes, .size = sizeof(bytes)};
+    McCustomChunks source = {.chunks = &chunk, .count = 1};
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_custom_chunks_write(&source, &encoded) == MC_OK);
+    McCustomChunks decoded = {0};
+    assert(mc_custom_chunks_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.count == 1 && strcmp(decoded.chunks[0].name, name) == 0);
+    assert(decoded.chunks[0].size == sizeof(bytes));
+    assert(memcmp(decoded.chunks[0].data, bytes, sizeof(bytes)) == 0);
+    mc_custom_chunks_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+}
+
+static void test_data_patches_codec(void){
+    static const uint8_t text[] = {'{', '}', '\n'};
+    static const uint8_t image[] = {1, 2, 3, 4};
+    static char image_name[] = "map/icon";
+    McPatchAsset assets[] = {
+        {.kind = MC_PATCH_TEXT, .data = (uint8_t *)text, .size = sizeof(text)},
+        {.kind = MC_PATCH_IMAGE, .name = image_name, .width = 2, .height = 2,
+         .data = (uint8_t *)image, .size = sizeof(image)}
+    };
+    McDataPatches source = {.format_version = 2, .assets = assets, .count = 2};
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_data_patches_write(12, &source, &encoded) == MC_OK);
+    McDataPatches decoded = {0};
+    assert(mc_data_patches_read(12, encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.format_version == 2 && decoded.count == 2);
+    assert(decoded.assets[0].kind == MC_PATCH_TEXT && decoded.assets[0].size == sizeof(text));
+    assert(decoded.assets[1].kind == MC_PATCH_IMAGE && strcmp(decoded.assets[1].name, image_name) == 0);
+    assert(decoded.assets[1].width == 2 && decoded.assets[1].height == 2);
+    assert(memcmp(decoded.assets[1].data, image, sizeof(image)) == 0);
+    mc_data_patches_destroy(&decoded);
+    mc_buffer_clear(&encoded);
+
+    McDataPatches legacy = {.legacy = true, .assets = assets, .count = 1};
+    assert(mc_data_patches_write(11, &legacy, &encoded) == MC_OK);
+    assert(mc_data_patches_read(11, encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.legacy && decoded.count == 1 && decoded.assets[0].size == sizeof(text));
+    mc_data_patches_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
 }
 
 static void test_png_map_image_codec(void){
@@ -481,6 +613,14 @@ static void test_java_content_header(void){
     assert(mc_content_header_find(&decoded, MC_CONTENT_ITEM, "lead") == 1);
     assert(mc_content_header_find(&decoded, MC_CONTENT_BLOCK, "core-shard") == 1);
     assert(mc_content_header_find(&decoded, MC_CONTENT_BLOCK, "missing") == -1);
+    static const char *current_blocks[] = {"duo", "air", "core-shard"};
+    static const McContentGroupView current[] = {{MC_CONTENT_BLOCK, current_blocks, 3}};
+    McContentRemap remap = {0};
+    assert(mc_content_remap_build(&decoded, current, 1, &remap) == MC_OK);
+    assert(mc_content_remap_find(&remap, MC_CONTENT_ITEM, 0) == -1);
+    assert(mc_content_remap_find(&remap, MC_CONTENT_BLOCK, 0) == 1);
+    assert(mc_content_remap_find(&remap, MC_CONTENT_BLOCK, 1) == 2);
+    mc_content_remap_destroy(&remap);
     mc_content_header_destroy(&decoded);
     mc_buffer_destroy(&encoded);
 }
@@ -542,6 +682,10 @@ static void test_content_table(void){
 int main(void){
     test_map_section_entity_records();
     test_full_save_loader();
+    test_markers_codec();
+    test_entities_region_codec();
+    test_custom_chunks_codec();
+    test_data_patches_codec();
     test_png_map_image_codec();
     test_schematic_codec();
     test_world_bounds_and_clear();

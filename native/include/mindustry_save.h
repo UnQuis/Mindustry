@@ -57,6 +57,17 @@ typedef struct McContentHeader{
     size_t count;
 } McContentHeader;
 
+typedef struct McContentRemapGroup{
+    uint8_t type;
+    int32_t *ids;
+    size_t count;
+} McContentRemapGroup;
+
+typedef struct McContentRemap{
+    McContentRemapGroup *groups;
+    size_t count;
+} McContentRemap;
+
 typedef struct McPlainMapSave{
     uint32_t version;
     McSaveTags meta;
@@ -92,6 +103,10 @@ MC_API void mc_save_tags_destroy(McSaveTags *tags);
 MC_API McStatus mc_save_write_content_header(McBuffer *output, const McContentGroupView *groups, size_t count);
 MC_API McStatus mc_save_read_content_header(McBuffer *input, McContentHeader *header);
 MC_API int32_t mc_content_header_find(const McContentHeader *header, uint8_t type, const char *name);
+MC_API const char *mc_content_name_fallback(uint8_t type, const char *name);
+MC_API McStatus mc_content_remap_build(const McContentHeader *saved, const McContentGroupView *current, size_t current_count, McContentRemap *remap);
+MC_API int32_t mc_content_remap_find(const McContentRemap *remap, uint8_t type, uint16_t saved_id);
+MC_API void mc_content_remap_destroy(McContentRemap *remap);
 MC_API void mc_content_header_destroy(McContentHeader *header);
 
 /* Reads a current (version 8..13) zlib-wrapped save when its map section has

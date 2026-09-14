@@ -36,11 +36,15 @@ static McStatus read_complete_content_header(const uint8_t *data, size_t size, M
 void mc_save_file_destroy(McSaveFile *save){
     if(save == NULL) return;
     mc_save_tags_destroy(&save->meta);
+    mc_data_patches_destroy(&save->patch_data);
     mc_content_header_destroy(&save->content);
     mc_map_section_destroy(&save->map);
+    mc_entities_destroy(&save->entity_data);
+    mc_markers_destroy(&save->marker_data);
     free(save->patches.data);
     free(save->entities.data);
     free(save->markers.data);
+    mc_custom_chunks_destroy(&save->custom_data);
     free(save->custom.data);
     *save = (McSaveFile){0};
 }
@@ -67,9 +71,12 @@ McStatus mc_save_file_load(const uint8_t *compressed, size_t size, McSaveFile *s
         status = MC_FORMAT_ERROR;
         goto failure;
     }
+
+    /* Save 12+ moved patches before the content header. Save 11 kept the
+       content header before its legacy patch region. */
     if(save->version >= 12){
         status = copy_region(&input, &save->patches);
-        if(status != MC_OK || save->patches.size < 8){
+        if(status != MC_OK || mc_data_patches_read(save->version, save->patches.data, save->patches.size, &save->patch_data) != MC_OK){
             status = MC_FORMAT_ERROR;
             goto failure;
         }
@@ -80,19 +87,33 @@ McStatus mc_save_file_load(const uint8_t *compressed, size_t size, McSaveFile *s
         status = MC_FORMAT_ERROR;
         goto failure;
     }
+    if(save->version == 11){
+        status = copy_region(&input, &save->patches);
+        if(status != MC_OK || mc_data_patches_read(save->version, save->patches.data, save->patches.size, &save->patch_data) != MC_OK){
+            status = MC_FORMAT_ERROR;
+            goto failure;
+        }
+    }
+
     status = mc_save_read_region(&input, &region_data, &region_size);
     if(status != MC_OK || mc_map_section_read(region_data, region_size, &save->map) != MC_OK){
         status = MC_FORMAT_ERROR;
         goto failure;
     }
     status = copy_region(&input, &save->entities);
-    if(status != MC_OK) goto failure;
+    if(status != MC_OK || mc_entities_read(save->entities.data, save->entities.size, &save->entity_data) != MC_OK){
+        status = MC_FORMAT_ERROR;
+        goto failure;
+    }
     if(save->version >= 8){
         status = copy_region(&input, &save->markers);
-        if(status != MC_OK) goto failure;
+        if(status != MC_OK || mc_markers_read(save->markers.data, save->markers.size, &save->marker_data) != MC_OK){
+            status = MC_FORMAT_ERROR;
+            goto failure;
+        }
     }
     status = copy_region(&input, &save->custom);
-    if(status != MC_OK || input.position != input.size){
+    if(status != MC_OK || mc_custom_chunks_read(save->custom.data, save->custom.size, &save->custom_data) != MC_OK || input.position != input.size){
         status = MC_FORMAT_ERROR;
         goto failure;
     }
@@ -110,15 +131,38 @@ static McStatus write_blob_region(McBuffer *stream, const McSaveBlob *blob){
     return mc_save_write_region(stream, blob->data, blob->size);
 }
 
+static McStatus write_patches_region(McBuffer *stream, McBuffer *region, const McSaveFile *save){
+    if(save->patches.size != 0){
+        return write_blob_region(stream, &save->patches);
+    }
+
+    mc_buffer_clear(region);
+    if(save->patch_data.count != 0 || save->patch_data.format_version != 0 || save->patch_data.legacy){
+        McStatus status = mc_data_patches_write(save->version, &save->patch_data, region);
+        if(status != MC_OK) return status;
+    }else if(save->version == 11){
+        McStatus status = mc_buffer_write_u8(region, 0);
+        if(status != MC_OK) return status;
+    }else{
+        /* DataPatcher.patchFormatVersion is currently 2. */
+        McStatus status = mc_buffer_write_u32_be(region, 2);
+        if(status == MC_OK) status = mc_buffer_write_u32_be(region, 0);
+        if(status == MC_OK) status = mc_buffer_write_u32_be(region, 0);
+        if(status != MC_OK) return status;
+    }
+    return mc_save_write_region(stream, region->data, region->size);
+}
+
 McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed){
     if(save == NULL || compressed == NULL || save->version < 8 || save->version > 13 ||
        save->map.tiles == NULL || save->map.width == 0 || save->map.height == 0 ||
        save->meta.count > UINT16_MAX || save->content.count > UINT8_MAX) return MC_INVALID_ARGUMENT;
+    if(save->version < 11 && (save->patches.size != 0 || save->patch_data.count != 0 ||
+                              save->patch_data.format_version != 0 || save->patch_data.legacy)) return MC_INVALID_ARGUMENT;
 
-    McBuffer stream, region, default_patches;
+    McBuffer stream, region;
     mc_buffer_init(&stream);
     mc_buffer_init(&region);
-    mc_buffer_init(&default_patches);
     McSaveTag *meta_tags = NULL;
     McContentGroupView *content_views = NULL;
     McStatus status = mc_save_write_header(&stream, save->version);
@@ -137,14 +181,7 @@ McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed){
     if(status != MC_OK) goto cleanup;
 
     if(save->version >= 12){
-        if(save->patches.size == 0){
-            status = mc_buffer_write_u32_be(&default_patches, 2);
-            if(status == MC_OK) status = mc_buffer_write_u32_be(&default_patches, 0);
-            if(status != MC_OK) goto cleanup;
-            status = mc_save_write_region(&stream, default_patches.data, default_patches.size);
-        }else{
-            status = write_blob_region(&stream, &save->patches);
-        }
+        status = write_patches_region(&stream, &region, save);
         if(status != MC_OK) goto cleanup;
     }
 
@@ -165,16 +202,42 @@ McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed){
     status = mc_save_write_region(&stream, region.data, region.size);
     if(status != MC_OK) goto cleanup;
 
+    if(save->version == 11){
+        status = write_patches_region(&stream, &region, save);
+        if(status != MC_OK) goto cleanup;
+    }
+
     mc_buffer_clear(&region);
     status = mc_map_section_write(&save->map, &region);
     if(status != MC_OK) goto cleanup;
     status = mc_save_write_region(&stream, region.data, region.size);
     if(status != MC_OK) goto cleanup;
-    status = write_blob_region(&stream, &save->entities);
+    if(save->entities.size != 0){
+        status = write_blob_region(&stream, &save->entities);
+    }else{
+        mc_buffer_clear(&region);
+        status = mc_entities_write(&save->entity_data, &region);
+        if(status == MC_OK) status = mc_save_write_region(&stream, region.data, region.size);
+    }
     if(status != MC_OK) goto cleanup;
-    status = write_blob_region(&stream, &save->markers);
+    if(save->markers.size != 0){
+        status = write_blob_region(&stream, &save->markers);
+    }else{
+        McMarkers empty = save->marker_data;
+        if(empty.root.kind != MC_UBJSON_OBJECT) mc_markers_init_empty(&empty);
+        mc_buffer_clear(&region);
+        status = mc_markers_write(&empty, &region);
+        if(status == MC_OK) status = mc_save_write_region(&stream, region.data, region.size);
+        if(empty.root.kind == MC_UBJSON_OBJECT && save->marker_data.root.kind != MC_UBJSON_OBJECT) mc_markers_destroy(&empty);
+    }
     if(status != MC_OK) goto cleanup;
-    status = write_blob_region(&stream, &save->custom);
+    if(save->custom.size != 0){
+        status = write_blob_region(&stream, &save->custom);
+    }else{
+        mc_buffer_clear(&region);
+        status = mc_custom_chunks_write(&save->custom_data, &region);
+        if(status == MC_OK) status = mc_save_write_region(&stream, region.data, region.size);
+    }
     if(status != MC_OK) goto cleanup;
 
     status = mc_zlib_compress_stored(stream.data, stream.size, compressed);
@@ -182,7 +245,6 @@ McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed){
 cleanup:
     free(meta_tags);
     free(content_views);
-    mc_buffer_destroy(&default_patches);
     mc_buffer_destroy(&region);
     mc_buffer_destroy(&stream);
     return status;

@@ -20,7 +20,8 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Java-compatible MSAV header, length-prefixed region, StringMap and modified UTF-8 primitives.
 - [x] Dependency-free zlib/DEFLATE wrapper: stored-block writer and stored/fixed/dynamic Huffman reader.
 - [x] Negative tests for truncation, checksum, trailing bytes, invalid flags and malformed container data.
-- [x] Validated read/write composition for current plain-tile `.msav` streams; unsupported building/entity/custom records are framed and skipped or rejected without data loss.
+- [x] Validated read/write composition for current `.msav` streams.
+- [x] Raw save loader/writer preserving patches, entity, marker and custom regions as opaque bytes.
 - [x] Content header mapping by Java `ContentType` ordinal and name.
 - [x] Lossless raw map-section codec for building entity chunks and tile data records.
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and raw TypeIO configs.
@@ -34,7 +35,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. Current codecs cover the MSAV primitives, zlib/DEFLATE stream and plain-tile section; full composition and building/entity/custom-data records are still separate gates.
+- [ ] Semantic map/save integration: decode building state, entities, team plans, MapMarkers/objectives and custom chunk schemas. The raw MSAV loader now preserves these regions byte-for-byte, but the gameplay model does not consume them yet.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

@@ -5,6 +5,7 @@
 #include "mindustry_schematic.h"
 #include "mindustry_png.h"
 #include "mindustry_map.h"
+#include "mindustry_save_loader.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -46,6 +47,64 @@ static void test_map_section_entity_records(void){
     mc_map_section_destroy(&decoded);
     mc_buffer_destroy(&encoded);
     mc_map_section_destroy(&source);
+}
+
+static void test_full_save_loader(void){
+    McMapSection map = {0};
+    assert(mc_map_section_init(&map, 2, 2) == MC_OK);
+    map.tiles[3].tile.block = MC_BLOCK_DUO;
+    map.tiles[3].flags = 1;
+    map.tiles[3].entity_center = true;
+    map.tiles[3].entity_size = 3;
+    map.tiles[3].entity_data = malloc(3);
+    assert(map.tiles[3].entity_data != NULL);
+    memcpy(map.tiles[3].entity_data, "xyz", 3);
+
+    static char *meta_keys[] = {"mapname", "width", "height"};
+    static char *meta_values[] = {"loader-fixture", "2", "2"};
+    static char *block_names[] = {"air", "core-shard", "mechanical-drill", "conveyor", "duo"};
+    static McContentGroup content_group = {MC_CONTENT_BLOCK, block_names, 5};
+    static const uint8_t patches[] = {0,0,0,2, 0,0,0,0};
+    static const uint8_t entities[] = {0,0,0,0};
+    static const uint8_t markers[] = {'{', '}'};
+    static const uint8_t custom[] = {0,0,0,0};
+    McSaveFile source = {
+        .version = 13,
+        .meta = {.keys = meta_keys, .values = meta_values, .count = 3},
+        .patches = {(uint8_t *)patches, sizeof(patches)},
+        .content = {.groups = &content_group, .count = 1},
+        .map = map,
+        .entities = {(uint8_t *)entities, sizeof(entities)},
+        .markers = {(uint8_t *)markers, sizeof(markers)},
+        .custom = {(uint8_t *)custom, sizeof(custom)}
+    };
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_save_file_write(&source, &encoded) == MC_OK);
+    McSaveFile loaded = {0};
+    assert(mc_save_file_load(encoded.data, encoded.size, &loaded) == MC_OK);
+    assert(loaded.version == 13);
+    assert(strcmp(loaded.meta.values[0], "loader-fixture") == 0);
+    assert(mc_content_header_find(&loaded.content, MC_CONTENT_BLOCK, "duo") == 4);
+    assert(loaded.map.tiles[3].entity_size == 3);
+    assert(memcmp(loaded.map.tiles[3].entity_data, "xyz", 3) == 0);
+    assert(loaded.entities.size == sizeof(entities) && memcmp(loaded.entities.data, entities, sizeof(entities)) == 0);
+    assert(loaded.markers.size == sizeof(markers) && memcmp(loaded.markers.data, markers, sizeof(markers)) == 0);
+
+    McBuffer rewritten;
+    mc_buffer_init(&rewritten);
+    assert(mc_save_file_write(&loaded, &rewritten) == MC_OK);
+    McSaveFile loaded_again = {0};
+    assert(mc_save_file_load(rewritten.data, rewritten.size, &loaded_again) == MC_OK);
+    assert(loaded_again.map.tiles[3].entity_size == 3);
+    assert(memcmp(loaded_again.map.tiles[3].entity_data, "xyz", 3) == 0);
+
+    mc_save_file_destroy(&loaded_again);
+    mc_save_file_destroy(&loaded);
+    mc_buffer_destroy(&rewritten);
+    mc_buffer_destroy(&encoded);
+    mc_map_section_destroy(&map);
 }
 
 static void test_png_map_image_codec(void){
@@ -482,6 +541,7 @@ static void test_content_table(void){
 
 int main(void){
     test_map_section_entity_records();
+    test_full_save_loader();
     test_png_map_image_codec();
     test_schematic_codec();
     test_world_bounds_and_clear();

@@ -1,8 +1,10 @@
 #include "mindustry.h"
 #include "mindustry_format.h"
+#include "mindustry_save.h"
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void test_world_bounds_and_clear(void){
@@ -70,6 +72,82 @@ static void test_java_map_section_codec(void){
     mc_world_destroy(&world);
 }
 
+static void test_java_save_container(void){
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_save_write_header(&encoded, 13) == MC_OK);
+
+    static const McSaveTag tags[] = {
+        {"mapname", "ground zero"},
+        {"rocket", "\xF0\x9F\x9A\x80"}
+    };
+    assert(mc_save_write_string_map(&encoded, tags, 2) == MC_OK);
+    static const uint8_t payload[] = {0x01, 0x02, 0x03, 0x04};
+    assert(mc_save_write_region(&encoded, payload, sizeof(payload)) == MC_OK);
+
+    encoded.position = 0;
+    uint32_t version = 0;
+    assert(mc_save_read_header(&encoded, &version) == MC_OK);
+    assert(version == 13);
+    McSaveTags decoded_tags = {0};
+    assert(mc_save_read_string_map(&encoded, &decoded_tags) == MC_OK);
+    assert(decoded_tags.count == 2);
+    assert(strcmp(decoded_tags.keys[0], "mapname") == 0);
+    assert(strcmp(decoded_tags.values[0], "ground zero") == 0);
+    assert(strcmp(decoded_tags.keys[1], "rocket") == 0);
+    assert(strcmp(decoded_tags.values[1], "\xF0\x9F\x9A\x80") == 0);
+    const uint8_t *decoded_payload = NULL;
+    size_t decoded_size = 0;
+    assert(mc_save_read_region(&encoded, &decoded_payload, &decoded_size) == MC_OK);
+    assert(decoded_size == sizeof(payload));
+    assert(memcmp(decoded_payload, payload, sizeof(payload)) == 0);
+    assert(encoded.position == encoded.size);
+    mc_save_tags_destroy(&decoded_tags);
+
+    /* Java modified UTF-8 encodes U+1F680 as two UTF-16 surrogate triplets. */
+    McBuffer utf;
+    mc_buffer_init(&utf);
+    assert(mc_save_write_utf(&utf, "\xF0\x9F\x9A\x80") == MC_OK);
+    static const uint8_t modified_rocket[] = {0x00, 0x06, 0xED, 0xA0, 0xBD, 0xED, 0xBA, 0x80};
+    assert(utf.size == sizeof(modified_rocket));
+    assert(memcmp(utf.data, modified_rocket, sizeof(modified_rocket)) == 0);
+    utf.position = 0;
+    char *decoded_rocket = NULL;
+    assert(mc_save_read_utf(&utf, &decoded_rocket) == MC_OK);
+    assert(strcmp(decoded_rocket, "\xF0\x9F\x9A\x80") == 0);
+    free(decoded_rocket);
+    mc_buffer_destroy(&utf);
+
+    mc_buffer_destroy(&encoded);
+}
+
+static void test_java_content_header(void){
+    static const char *items[] = {"copper", "lead"};
+    static const char *blocks[] = {"air", "core-shard"};
+    static const McContentGroupView groups[] = {
+        {MC_CONTENT_ITEM, items, 2},
+        {MC_CONTENT_BLOCK, blocks, 2}
+    };
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_save_write_content_header(&encoded, groups, 2) == MC_OK);
+    static const uint8_t expected_prefix[] = {0x02, 0x00, 0x00, 0x02, 0x00, 0x06};
+    assert(encoded.size > sizeof(expected_prefix));
+    assert(memcmp(encoded.data, expected_prefix, sizeof(expected_prefix)) == 0);
+
+    encoded.position = 0;
+    McContentHeader decoded = {0};
+    assert(mc_save_read_content_header(&encoded, &decoded) == MC_OK);
+    assert(decoded.count == 2);
+    assert(mc_content_header_find(&decoded, MC_CONTENT_ITEM, "copper") == 0);
+    assert(mc_content_header_find(&decoded, MC_CONTENT_ITEM, "lead") == 1);
+    assert(mc_content_header_find(&decoded, MC_CONTENT_BLOCK, "core-shard") == 1);
+    assert(mc_content_header_find(&decoded, MC_CONTENT_BLOCK, "missing") == -1);
+    mc_content_header_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+}
+
 static void test_inventory_capacity(void){
     McInventory inventory;
     mc_inventory_clear(&inventory, 10);
@@ -127,6 +205,8 @@ static void test_content_table(void){
 int main(void){
     test_world_bounds_and_clear();
     test_java_map_section_codec();
+    test_java_save_container();
+    test_java_content_header();
     test_inventory_capacity();
     test_block_placement();
     test_deterministic_steps();

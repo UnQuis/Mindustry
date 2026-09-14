@@ -55,6 +55,25 @@ McStatus mc_buffer_write_u16_be(McBuffer *buffer, uint16_t value){
     return MC_OK;
 }
 
+McStatus mc_buffer_write_u32_be(McBuffer *buffer, uint32_t value){
+    McStatus status = mc_buffer_reserve(buffer, 4);
+    if(status != MC_OK) return status;
+    buffer->data[buffer->size++] = (uint8_t)(value >> 24);
+    buffer->data[buffer->size++] = (uint8_t)(value >> 16);
+    buffer->data[buffer->size++] = (uint8_t)(value >> 8);
+    buffer->data[buffer->size++] = (uint8_t)(value & 0xffu);
+    return MC_OK;
+}
+
+McStatus mc_buffer_write_bytes(McBuffer *buffer, const void *data, size_t size){
+    if(buffer == NULL || (data == NULL && size != 0)) return MC_INVALID_ARGUMENT;
+    McStatus status = mc_buffer_reserve(buffer, size);
+    if(status != MC_OK) return status;
+    if(size != 0) memcpy(buffer->data + buffer->size, data, size);
+    buffer->size += size;
+    return MC_OK;
+}
+
 McStatus mc_buffer_read_u8(McBuffer *buffer, uint8_t *value){
     if(buffer == NULL || value == NULL || buffer->position >= buffer->size) return MC_FORMAT_ERROR;
     *value = buffer->data[buffer->position++];
@@ -71,10 +90,22 @@ McStatus mc_buffer_read_u16_be(McBuffer *buffer, uint16_t *value){
     return MC_OK;
 }
 
+McStatus mc_buffer_read_u32_be(McBuffer *buffer, uint32_t *value){
+    if(buffer == NULL || value == NULL || buffer->position > buffer->size || buffer->size - buffer->position < 4){
+        return MC_FORMAT_ERROR;
+    }
+    uint32_t b0 = buffer->data[buffer->position++];
+    uint32_t b1 = buffer->data[buffer->position++];
+    uint32_t b2 = buffer->data[buffer->position++];
+    uint32_t b3 = buffer->data[buffer->position++];
+    *value = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    return MC_OK;
+}
+
 McStatus mc_buffer_read_bytes(McBuffer *buffer, void *destination, size_t size){
-    if(buffer == NULL || destination == NULL || buffer->position > buffer->size ||
+    if(buffer == NULL || (destination == NULL && size != 0) || buffer->position > buffer->size ||
        size > buffer->size - buffer->position) return MC_FORMAT_ERROR;
-    memcpy(destination, buffer->data + buffer->position, size);
+    if(size != 0) memcpy(destination, buffer->data + buffer->position, size);
     buffer->position += size;
     return MC_OK;
 }

@@ -14,6 +14,14 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Headless executable and tests.
 - [x] Optional SDL2 frontend boundary.
 
+## Milestone 2 — in progress
+
+- [x] Java-compatible plain-tile map-section codec: big-endian shorts and floor/block RLE.
+- [x] Java-compatible MSAV header, length-prefixed region, StringMap and modified UTF-8 primitives.
+- [x] Negative tests for truncation, trailing bytes, invalid flags and malformed container data.
+- [ ] Deflate stream wrapper and full `.msav` reader/writer.
+- [ ] Content header mapping and building/entity/custom-data chunks.
+
 ## Not ported yet
 
 - [ ] Arc replacement: graphics, audio, file system, input, UI scene graph, fonts, shaders, threading and platform services.
@@ -21,7 +29,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. The current codec only covers the uncompressed plain-tile section; it deliberately rejects building/entity/custom-data records instead of dropping them.
+- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. Current codecs cover the uncompressed outer primitives and plain-tile section; deflate, content mapping and building/entity/custom-data records are still separate gates.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

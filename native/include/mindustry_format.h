@@ -19,8 +19,11 @@ MC_API void mc_buffer_destroy(McBuffer *buffer);
 MC_API void mc_buffer_clear(McBuffer *buffer);
 MC_API McStatus mc_buffer_write_u8(McBuffer *buffer, uint8_t value);
 MC_API McStatus mc_buffer_write_u16_be(McBuffer *buffer, uint16_t value);
+MC_API McStatus mc_buffer_write_u32_be(McBuffer *buffer, uint32_t value);
+MC_API McStatus mc_buffer_write_bytes(McBuffer *buffer, const void *data, size_t size);
 MC_API McStatus mc_buffer_read_u8(McBuffer *buffer, uint8_t *value);
 MC_API McStatus mc_buffer_read_u16_be(McBuffer *buffer, uint16_t *value);
+MC_API McStatus mc_buffer_read_u32_be(McBuffer *buffer, uint32_t *value);
 MC_API McStatus mc_buffer_read_bytes(McBuffer *buffer, void *destination, size_t size);
 
 /*

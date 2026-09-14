@@ -286,12 +286,12 @@ McStatus mc_markers_read(const uint8_t *data, size_t size, McMarkers *markers){
 }
 
 static McStatus write_length(McBuffer *output, size_t size){
-    if(size <= UINT8_MAX){
+    if(size <= INT8_MAX){
         McStatus status = mc_buffer_write_u8(output, 'i');
         if(status == MC_OK) status = mc_buffer_write_u8(output, (uint8_t)size);
         return status;
     }
-    if(size <= UINT16_MAX){
+    if(size <= INT16_MAX){
         McStatus status = mc_buffer_write_u8(output, 'I');
         if(status == MC_OK) status = mc_buffer_write_u16_be(output, (uint16_t)size);
         return status;

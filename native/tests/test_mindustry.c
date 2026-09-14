@@ -1,6 +1,7 @@
 #include "mindustry.h"
 #include "mindustry_format.h"
 #include "mindustry_save.h"
+#include "mindustry_deflate.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -121,6 +122,63 @@ static void test_java_save_container(void){
     mc_buffer_destroy(&encoded);
 }
 
+static void test_zlib_deflate_wrapper(void){
+    static const uint8_t dynamic_stream[] = {
+        0x78, 0x9c, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40,
+        0x22, 0xcb, 0xf3, 0x8b, 0x72, 0x52, 0x14, 0x51, 0x84, 0x46,
+        0x25, 0x86, 0x95, 0x04, 0x00, 0xf5, 0x4a, 0xb4, 0x65
+    };
+    const char phrase[] = "hello hello hello world! ";
+    const size_t phrase_size = sizeof(phrase) - 1;
+    uint8_t expected[sizeof(phrase) * 20 - 20];
+    for(size_t i = 0; i < 20; i++) memcpy(expected + i * phrase_size, phrase, phrase_size);
+
+    McBuffer decoded;
+    mc_buffer_init(&decoded);
+    assert(mc_zlib_decompress(dynamic_stream, sizeof(dynamic_stream), &decoded) == MC_OK);
+    assert(decoded.size == sizeof(expected));
+    assert(memcmp(decoded.data, expected, sizeof(expected)) == 0);
+
+    static const uint8_t dynamic_huffman_stream[] = {
+        0x78, 0x9c, 0xed, 0xc1, 0x01, 0x0d, 0x00, 0x00, 0x00, 0xc2,
+        0xa0, 0xac, 0xef, 0x5f, 0xc2, 0x1c, 0x6e, 0x40, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0xbf, 0x01,
+        0x9f, 0xbb, 0xcd, 0xe3
+    };
+    uint8_t dynamic_expected[10000];
+    memset(dynamic_expected, 'a', sizeof(dynamic_expected));
+    mc_buffer_clear(&decoded);
+    assert(mc_zlib_decompress(dynamic_huffman_stream, sizeof(dynamic_huffman_stream), &decoded) == MC_OK);
+    assert(decoded.size == sizeof(dynamic_expected));
+    assert(memcmp(decoded.data, dynamic_expected, sizeof(dynamic_expected)) == 0);
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_zlib_compress_stored(expected, sizeof(expected), &encoded) == MC_OK);
+    McBuffer round_trip;
+    mc_buffer_init(&round_trip);
+    assert(mc_zlib_decompress(encoded.data, encoded.size, &round_trip) == MC_OK);
+    assert(round_trip.size == sizeof(expected));
+    assert(memcmp(round_trip.data, expected, sizeof(expected)) == 0);
+
+    static const uint8_t expected_empty[] = {0x78, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01};
+    mc_buffer_clear(&encoded);
+    assert(mc_zlib_compress_stored(NULL, 0, &encoded) == MC_OK);
+    assert(encoded.size == sizeof(expected_empty));
+    assert(memcmp(encoded.data, expected_empty, sizeof(expected_empty)) == 0);
+
+    uint8_t damaged[sizeof(dynamic_stream)];
+    memcpy(damaged, dynamic_stream, sizeof(damaged));
+    damaged[sizeof(damaged) - 1] ^= 1;
+    assert(mc_zlib_decompress(damaged, sizeof(damaged), &round_trip) == MC_FORMAT_ERROR);
+    damaged[0] = 0;
+    assert(mc_zlib_decompress(damaged, sizeof(damaged), &round_trip) == MC_FORMAT_ERROR);
+
+    mc_buffer_destroy(&round_trip);
+    mc_buffer_destroy(&encoded);
+    mc_buffer_destroy(&decoded);
+}
+
 static void test_java_content_header(void){
     static const char *items[] = {"copper", "lead"};
     static const char *blocks[] = {"air", "core-shard"};
@@ -206,6 +264,7 @@ int main(void){
     test_world_bounds_and_clear();
     test_java_map_section_codec();
     test_java_save_container();
+    test_zlib_deflate_wrapper();
     test_java_content_header();
     test_inventory_capacity();
     test_block_placement();

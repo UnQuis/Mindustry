@@ -18,9 +18,11 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 
 - [x] Java-compatible plain-tile map-section codec: big-endian shorts and floor/block RLE.
 - [x] Java-compatible MSAV header, length-prefixed region, StringMap and modified UTF-8 primitives.
-- [x] Negative tests for truncation, trailing bytes, invalid flags and malformed container data.
-- [ ] Deflate stream wrapper and full `.msav` reader/writer.
-- [ ] Content header mapping and building/entity/custom-data chunks.
+- [x] Dependency-free zlib/DEFLATE wrapper: stored-block writer and stored/fixed/dynamic Huffman reader.
+- [x] Negative tests for truncation, checksum, trailing bytes, invalid flags and malformed container data.
+- [ ] Full `.msav` reader/writer composition.
+- [x] Content header mapping by Java `ContentType` ordinal and name.
+- [ ] Building/entity/custom-data chunks.
 
 ## Not ported yet
 
@@ -29,7 +31,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. Current codecs cover the uncompressed outer primitives and plain-tile section; deflate, content mapping and building/entity/custom-data records are still separate gates.
+- [ ] Complete map, schematic and save readers/writers compatible with the Java formats. Current codecs cover the MSAV primitives, zlib/DEFLATE stream and plain-tile section; full composition and building/entity/custom-data records are still separate gates.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

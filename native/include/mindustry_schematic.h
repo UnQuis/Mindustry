@@ -12,6 +12,9 @@ typedef struct McSchematicTile{
     int16_t x;
     int16_t y;
     uint8_t rotation;
+    /* Raw TypeIO.writeObject bytes. Size zero means a null config. */
+    uint8_t *config;
+    size_t config_size;
 } McSchematicTile;
 
 typedef struct McSchematic{

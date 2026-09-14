@@ -63,9 +63,10 @@ static void test_schematic_codec(void){
     static char *keys[] = {"name", "labels"};
     static char *values[] = {"native schematic", "[]"};
     static char *blocks[] = {"conveyor", "duo"};
-    static const McSchematicTile tiles[] = {
+    static uint8_t integer_config[] = {1, 0, 0, 0, 42};
+    static McSchematicTile tiles[] = {
         {.block = 0, .x = 0, .y = 0, .rotation = 0},
-        {.block = 1, .x = 1, .y = 0, .rotation = 2},
+        {.block = 1, .x = 1, .y = 0, .rotation = 2, .config = integer_config, .config_size = sizeof(integer_config)},
         {.block = 0, .x = -1, .y = 3, .rotation = 1}
     };
     McSchematic source = {
@@ -93,6 +94,9 @@ static void test_schematic_codec(void){
         assert(decoded.tiles[i].x == tiles[i].x && decoded.tiles[i].y == tiles[i].y);
         assert(decoded.tiles[i].rotation == tiles[i].rotation);
     }
+    assert(decoded.tiles[0].config_size == 1 && decoded.tiles[0].config[0] == 0);
+    assert(decoded.tiles[1].config_size == sizeof(integer_config));
+    assert(memcmp(decoded.tiles[1].config, integer_config, sizeof(integer_config)) == 0);
 
     uint8_t invalid_header[6] = {'m', 's', 'c', 'h', 2, 0};
     assert(mc_schematic_read(invalid_header, sizeof(invalid_header), &decoded) == MC_FORMAT_ERROR);

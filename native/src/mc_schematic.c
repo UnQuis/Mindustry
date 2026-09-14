@@ -1,5 +1,6 @@
 #include "mindustry_schematic.h"
 #include "mindustry_deflate.h"
+#include "mindustry_typeio.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,7 @@ void mc_schematic_destroy(McSchematic *schematic){
     mc_save_tags_destroy(&schematic->tags);
     for(size_t i = 0; i < schematic->block_count; i++) free(schematic->blocks[i]);
     free(schematic->blocks);
+    for(size_t i = 0; i < schematic->tile_count; i++) free(schematic->tiles[i].config);
     free(schematic->tiles);
     *schematic = (McSchematic){0};
 }
@@ -77,7 +79,7 @@ McStatus mc_schematic_write(const McSchematic *schematic, McBuffer *output){
     if(status != MC_OK) goto cleanup;
     for(size_t i = 0; i < schematic->tile_count; i++){
         const McSchematicTile *tile = &schematic->tiles[i];
-        if(tile->block >= schematic->block_count) {
+        if(tile->block >= schematic->block_count || (tile->config_size != 0 && tile->config == NULL)) {
             status = MC_INVALID_ARGUMENT;
             goto cleanup;
         }
@@ -87,7 +89,8 @@ McStatus mc_schematic_write(const McSchematic *schematic, McBuffer *output){
         status = mc_buffer_write_u32_be(&plain, packed);
         if(status != MC_OK) goto cleanup;
         /* TypeIO.writeObject(null): nullType = 0. */
-        status = mc_buffer_write_u8(&plain, 0);
+        if(tile->config_size == 0) status = mc_buffer_write_u8(&plain, 0);
+        else status = mc_buffer_write_bytes(&plain, tile->config, tile->config_size);
         if(status != MC_OK) goto cleanup;
         status = mc_buffer_write_u8(&plain, tile->rotation);
         if(status != MC_OK) goto cleanup;
@@ -143,19 +146,28 @@ static McStatus read_schematic_payload(const uint8_t *data, size_t size, McSchem
         if(schematic->tiles == NULL) return MC_OUT_OF_MEMORY;
     }
     for(size_t i = 0; i < tile_count; i++){
-        uint8_t block = 0, config_type = 0, rotation = 0;
+        uint8_t block = 0, rotation = 0;
         uint32_t packed = 0;
         if(mc_buffer_read_u8(&input, &block) != MC_OK || block >= block_count ||
-           mc_buffer_read_u32_be(&input, &packed) != MC_OK ||
-           mc_buffer_read_u8(&input, &config_type) != MC_OK || config_type != 0 ||
+           mc_buffer_read_u32_be(&input, &packed) != MC_OK){
+            return MC_FORMAT_ERROR;
+        }
+        size_t config_start = input.position;
+        size_t config_size = 0;
+        if(mc_typeio_skip(&input, &config_size) != MC_OK ||
            mc_buffer_read_u8(&input, &rotation) != MC_OK){
             return MC_FORMAT_ERROR;
         }
+        uint8_t *config = malloc(config_size);
+        if(config_size != 0 && config == NULL) return MC_OUT_OF_MEMORY;
+        if(config_size != 0) memcpy(config, input.data + config_start, config_size);
         schematic->tiles[i] = (McSchematicTile){
             .block = block,
             .x = (int16_t)(packed >> 16),
             .y = (int16_t)packed,
-            .rotation = rotation
+            .rotation = rotation,
+            .config = config,
+            .config_size = config_size
         };
     }
     return input.position == input.size ? MC_OK : MC_FORMAT_ERROR;

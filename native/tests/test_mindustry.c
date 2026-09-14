@@ -179,6 +179,71 @@ static void test_zlib_deflate_wrapper(void){
     mc_buffer_destroy(&decoded);
 }
 
+static void test_plain_map_save_reader(void){
+    McWorld source = {0};
+    assert(mc_world_init(&source, 3, 2) == MC_OK);
+    source.tiles[2].floor = MC_FLOOR_SAND;
+    source.tiles[4].block = MC_BLOCK_DUO;
+
+    static const McSaveTag meta[] = {
+        {"mapname", "native-fixture"},
+        {"width", "3"},
+        {"height", "2"}
+    };
+    static const char *blocks[] = {"air", "core-shard", "mechanical-drill", "conveyor", "duo"};
+    static const McContentGroupView content[] = {{MC_CONTENT_BLOCK, blocks, 5}};
+
+    McBuffer uncompressed;
+    McBuffer region;
+    mc_buffer_init(&uncompressed);
+    mc_buffer_init(&region);
+    assert(mc_save_write_header(&uncompressed, 13) == MC_OK);
+
+    assert(mc_save_write_string_map(&region, meta, 3) == MC_OK);
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_buffer_write_u32_be(&region, 2) == MC_OK); /* DataPatcher.patchFormatVersion. */
+    assert(mc_buffer_write_u32_be(&region, 0) == MC_OK); /* No external data assets. */
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_save_write_content_header(&region, content, 1) == MC_OK);
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_map_write_section(&source, &region) == MC_OK);
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_buffer_write_u16_be(&region, 0) == MC_OK); /* custom entity mapping */
+    assert(mc_buffer_write_u32_be(&region, 0) == MC_OK); /* team build plans */
+    assert(mc_buffer_write_u32_be(&region, 0) == MC_OK); /* serialized world entities */
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_buffer_write_u8(&region, 0) == MC_OK); /* marker payload is skipped by this stage */
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+    mc_buffer_clear(&region);
+    assert(mc_buffer_write_u32_be(&region, 0) == MC_OK); /* no custom chunks */
+    assert(mc_save_write_region(&uncompressed, region.data, region.size) == MC_OK);
+
+    McBuffer compressed;
+    mc_buffer_init(&compressed);
+    assert(mc_zlib_compress_stored(uncompressed.data, uncompressed.size, &compressed) == MC_OK);
+    McPlainMapSave loaded = {0};
+    assert(mc_save_read_plain_map(compressed.data, compressed.size, &loaded) == MC_OK);
+    assert(loaded.version == 13);
+    assert(strcmp(loaded.meta.values[0], "native-fixture") == 0);
+    assert(mc_content_header_find(&loaded.content, MC_CONTENT_BLOCK, "duo") == 4);
+    assert(loaded.world.width == source.width && loaded.world.height == source.height);
+    for(size_t i = 0; i < 6; i++){
+        assert(loaded.world.tiles[i].floor == source.tiles[i].floor);
+        assert(loaded.world.tiles[i].block == source.tiles[i].block);
+    }
+
+    mc_plain_map_save_destroy(&loaded);
+    mc_buffer_destroy(&compressed);
+    mc_buffer_destroy(&region);
+    mc_buffer_destroy(&uncompressed);
+    mc_world_destroy(&source);
+}
+
 static void test_java_content_header(void){
     static const char *items[] = {"copper", "lead"};
     static const char *blocks[] = {"air", "core-shard"};
@@ -265,6 +330,7 @@ int main(void){
     test_java_map_section_codec();
     test_java_save_container();
     test_zlib_deflate_wrapper();
+    test_plain_map_save_reader();
     test_java_content_header();
     test_inventory_capacity();
     test_block_placement();

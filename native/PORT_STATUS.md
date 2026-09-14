@@ -20,9 +20,9 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Java-compatible MSAV header, length-prefixed region, StringMap and modified UTF-8 primitives.
 - [x] Dependency-free zlib/DEFLATE wrapper: stored-block writer and stored/fixed/dynamic Huffman reader.
 - [x] Negative tests for truncation, checksum, trailing bytes, invalid flags and malformed container data.
-- [ ] Full `.msav` reader/writer composition.
+- [x] Validated reader composition for current plain-tile `.msav` streams; unsupported building/entity/custom records are framed and skipped or rejected without data loss.
 - [x] Content header mapping by Java `ContentType` ordinal and name.
-- [ ] Building/entity/custom-data chunks.
+- [ ] Full writer composition and building/entity/custom-data chunks.
 
 ## Not ported yet
 

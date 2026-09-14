@@ -10,6 +10,7 @@ This directory is the first migration milestone for a native C implementation of
 - A Java-compatible uncompressed map-section codec for plain tiles and RLE.
 - Java-compatible MSAV headers, length-prefixed regions, string maps and modified UTF-8 helpers.
 - A dependency-free zlib/DEFLATE wrapper: stored-block writer plus stored/fixed/dynamic Huffman reader.
+- A validated reader for current plain-tile `.msav` streams, including metadata and content-name mappings.
 - Fixed 60 Hz stepping and a state hash for differential/conformance tests.
 - A headless executable and tests that compile without Java, Gradle or SDL.
 - An optional SDL2 desktop shell (`make sdl`) that draws the current native state.

@@ -236,8 +236,29 @@ static void test_plain_map_save_reader(void){
         assert(loaded.world.tiles[i].floor == source.tiles[i].floor);
         assert(loaded.world.tiles[i].block == source.tiles[i].block);
     }
-
     mc_plain_map_save_destroy(&loaded);
+
+    /* The high-level writer composes the same regions and zlib stream for a
+       map with no building records. It rejects non-air building tiles. */
+    source.tiles[4].block = MC_BLOCK_AIR;
+    McPlainMapSaveOptions options = {
+        .version = 13,
+        .meta = meta,
+        .meta_count = 3,
+        .content = content,
+        .content_count = 1,
+        .world = &source
+    };
+    McBuffer generated;
+    mc_buffer_init(&generated);
+    assert(mc_save_write_plain_map(&options, &generated) == MC_OK);
+    McPlainMapSave generated_save = {0};
+    assert(mc_save_read_plain_map(generated.data, generated.size, &generated_save) == MC_OK);
+    assert(generated_save.world.width == source.width && generated_save.world.height == source.height);
+    assert(generated_save.world.tiles[4].block == MC_BLOCK_AIR);
+    mc_plain_map_save_destroy(&generated_save);
+    mc_buffer_destroy(&generated);
+
     mc_buffer_destroy(&compressed);
     mc_buffer_destroy(&region);
     mc_buffer_destroy(&uncompressed);

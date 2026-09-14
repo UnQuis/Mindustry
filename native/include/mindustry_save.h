@@ -64,6 +64,15 @@ typedef struct McPlainMapSave{
     McWorld world;
 } McPlainMapSave;
 
+typedef struct McPlainMapSaveOptions{
+    uint32_t version;
+    const McSaveTag *meta;
+    size_t meta_count;
+    const McContentGroupView *content;
+    size_t content_count;
+    const McWorld *world;
+} McPlainMapSaveOptions;
+
 /* Java SaveIO header and SaveFileReader length-prefixed regions. */
 MC_API McStatus mc_save_write_header(McBuffer *output, uint32_t version);
 MC_API McStatus mc_save_read_header(McBuffer *input, uint32_t *version);
@@ -88,6 +97,7 @@ MC_API void mc_content_header_destroy(McContentHeader *header);
 /* Reads a current (version 8..13) zlib-wrapped save when its map section has
    no building/entity/custom tile records. Other regions are validated and
    skipped, never silently interpreted as plain tiles. */
+MC_API McStatus mc_save_write_plain_map(const McPlainMapSaveOptions *options, McBuffer *compressed);
 MC_API McStatus mc_save_read_plain_map(const uint8_t *compressed, size_t size, McPlainMapSave *save);
 MC_API void mc_plain_map_save_destroy(McPlainMapSave *save);
 

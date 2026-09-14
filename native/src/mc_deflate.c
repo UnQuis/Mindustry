@@ -23,7 +23,7 @@ static McStatus read_bits(McBitReader *reader, unsigned count, uint32_t *value){
     uint32_t result = 0;
     for(unsigned i = 0; i < count; i++){
         size_t bit = reader->bit_position++;
-        uint32_t bit_value = (uint32_t)((reader->data[bit >> 3] >> (bit & 7u)) & 1u);
+        uint32_t bit_value = ((uint32_t)reader->data[bit >> 3] >> (bit & 7u)) & 1u;
         result |= bit_value << i;
     }
     *value = result;

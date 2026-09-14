@@ -3,11 +3,61 @@
 #include "mindustry_save.h"
 #include "mindustry_deflate.h"
 #include "mindustry_schematic.h"
+#include "mindustry_png.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void test_png_map_image_codec(void){
+    static const uint8_t pixels[] = {
+        0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0x80, 0x00, 0x00, 0xff, 0x00,
+        0xff, 0xff, 0xff, 0xff, 0x12, 0x34, 0x56, 0x78, 0x00, 0x00, 0x00, 0x00
+    };
+    McImage source = {.width = 3, .height = 2, .rgba = (uint8_t *)pixels};
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_png_write(&source, &encoded) == MC_OK);
+    assert(encoded.size > 8);
+
+    McImage decoded = {0};
+    assert(mc_png_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.width == source.width && decoded.height == source.height);
+    assert(memcmp(decoded.rgba, pixels, sizeof(pixels)) == 0);
+
+    /* Fixture generated with one RGB row for each PNG filter 0..4. */
+    static const uint8_t filter_png[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+        0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x05,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x0f, 0x13, 0xc1, 0xf5, 0x00, 0x00, 0x00, 0x2e,
+        0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xe0, 0x12, 0x91, 0xd3, 0x30, 0xb2, 0x71,
+        0x0b, 0x88, 0x62, 0x4c, 0xc9, 0xab, 0x90, 0x03, 0x03, 0xa6, 0x28, 0x30, 0xc8, 0xcf,
+        0xcf, 0x67, 0x3e, 0x77, 0xf9, 0xc6, 0xf1, 0xe3, 0xc7, 0x6d, 0x6c, 0x6c, 0x58, 0x80,
+        0x02, 0x10, 0x59, 0x00, 0x4d, 0x8e, 0x0e, 0x78, 0xf7, 0x64, 0xff, 0x57, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+    };
+    static const uint8_t filter_pixels[] = {
+        10,20,30,255, 40,50,60,255, 70,80,90,255,
+        100,110,120,255, 130,140,150,255, 160,170,180,255,
+        190,200,210,255, 220,230,240,255, 15,25,35,255,
+        45,55,65,255, 75,85,95,255, 105,115,125,255,
+        135,145,155,255, 165,175,185,255, 195,205,215,255
+    };
+    mc_image_destroy(&decoded);
+    assert(mc_png_read(filter_png, sizeof(filter_png), &decoded) == MC_OK);
+    assert(decoded.width == 3 && decoded.height == 5);
+    assert(memcmp(decoded.rgba, filter_pixels, sizeof(filter_pixels)) == 0);
+
+    uint8_t *damaged = malloc(encoded.size);
+    assert(damaged != NULL);
+    memcpy(damaged, encoded.data, encoded.size);
+    damaged[encoded.size - 1] ^= 1;
+    assert(mc_png_read(damaged, encoded.size, &decoded) == MC_FORMAT_ERROR);
+    free(damaged);
+    mc_image_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+}
 
 static void test_schematic_codec(void){
     static char *keys[] = {"name", "labels"};
@@ -389,6 +439,7 @@ static void test_content_table(void){
 }
 
 int main(void){
+    test_png_map_image_codec();
     test_schematic_codec();
     test_world_bounds_and_clear();
     test_java_map_section_codec();

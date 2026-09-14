@@ -23,6 +23,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Validated read/write composition for current plain-tile `.msav` streams; unsupported building/entity/custom records are framed and skipped or rejected without data loss.
 - [x] Content header mapping by Java `ContentType` ordinal and name.
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and null TypeIO configs.
+- [x] Pure-C PNG RGB/RGBA codec with CRC validation and all five row filters.
 - [ ] Building/entity/custom-data chunks, non-null TypeIO configs and stateful saves.
 
 ## Not ported yet

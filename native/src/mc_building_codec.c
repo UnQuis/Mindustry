@@ -410,6 +410,11 @@ static McStatus read_item_buffer(McBuffer *in, McJavaItemBuffer *buffer, bool le
     for(int16_t i = 0; i < length; i++){
         uint64_t value = 0;
         if(read_u64_be(in, &value) != MC_OK) return MC_FORMAT_ERROR;
+        if(legacy){
+            uint64_t item = value & UINT64_C(0xff);
+            uint64_t time = (value >> 8) & UINT64_C(0xffffffff);
+            value = (time << 16) | item;
+        }
         if((uint16_t)i < MC_JAVA_BUILDING_MAX_BUFFER_SLOTS) buffer->values[i] = value;
     }
     /* ItemBuffer.read() deliberately clamps against the encoded length, not
@@ -417,7 +422,6 @@ static McStatus read_item_buffer(McBuffer *in, McJavaItemBuffer *buffer, bool le
        the semantic record while retaining all bytes through raw_exact. */
     int32_t clamped = index < (int32_t)length - 1 ? index : (int32_t)length - 1;
     buffer->index = (int16_t)clamped;
-    (void)legacy;
     return MC_OK;
 }
 
@@ -1121,7 +1125,7 @@ static McStatus read_base(McBuffer *in, McJavaBuildingRecord *record, const McCo
         record->time_scale_duration = 0.0f;
     }
     if((record->module_bits & BASE_DISABLER) != 0 && read_i32(in, &record->last_disabler) != MC_OK) return MC_FORMAT_ERROR;
-    if(record->base_version <= 2 && !record->legacy_base){
+    if(record->base_version <= 2){
         bool ignored = false;
         if(read_bool8(in, &ignored) != MC_OK) return MC_FORMAT_ERROR;
     }
@@ -1154,7 +1158,7 @@ static McStatus write_base(McBuffer *out, const McJavaBuildingRecord *record){
         if(status == MC_OK) status = write_f32(out, record->time_scale_duration);
     }
     if(status == MC_OK && (record->module_bits & BASE_DISABLER) != 0) status = write_i32(out, record->last_disabler);
-    if(status == MC_OK && !record->legacy_base && record->base_version <= 2) status = write_bool8(out, false);
+    if(status == MC_OK && record->base_version <= 2) status = write_bool8(out, false);
     if(status == MC_OK && !record->legacy_base && record->base_version >= 3){
         status = mc_buffer_write_u8(out, record->efficiency);
         if(status == MC_OK) status = mc_buffer_write_u8(out, record->optional_efficiency);

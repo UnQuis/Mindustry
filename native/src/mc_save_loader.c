@@ -39,6 +39,8 @@ void mc_save_file_destroy(McSaveFile *save){
     mc_data_patches_destroy(&save->patch_data);
     mc_content_header_destroy(&save->content);
     mc_map_section_destroy(&save->map);
+    for(size_t i = 0; i < save->java_building_count; i++) mc_java_building_record_destroy(&save->java_buildings[i].record);
+    free(save->java_buildings);
     mc_entities_destroy(&save->entity_data);
     mc_markers_destroy(&save->marker_data);
     free(save->patches.data);
@@ -130,6 +132,79 @@ failure:
 McStatus mc_save_file_copy_world(const McSaveFile *save, McWorld *world){
     if(save == NULL || world == NULL) return MC_INVALID_ARGUMENT;
     return mc_map_section_copy_to_world(&save->map, world);
+}
+
+static void mc_save_file_clear_decoded_buildings(McSaveFile *save){
+    if(save == NULL) return;
+    for(size_t i = 0; i < save->java_building_count; i++) mc_java_building_record_destroy(&save->java_buildings[i].record);
+    free(save->java_buildings);
+    save->java_buildings = NULL;
+    save->java_building_count = 0;
+}
+
+static McStatus mc_save_file_decode_buildings_internal(McSaveFile *save, bool strict,
+                                                        const McContentRemap *remap){
+    if(save == NULL || save->map.tiles == NULL || save->map.width == 0 || save->map.height == 0) return MC_INVALID_ARGUMENT;
+    mc_save_file_clear_decoded_buildings(save);
+    size_t total = (size_t)save->map.width * save->map.height;
+    for(size_t index = 0; index < total; index++){
+        const McMapTileRecord *tile = &save->map.tiles[index];
+        if((tile->flags & 1u) == 0 || !tile->entity_center) continue;
+        if(tile->entity_size == 0){
+            if(strict) return MC_FORMAT_ERROR;
+            continue;
+        }
+        McJavaBuildingRecord record;
+        mc_java_building_record_init(&record, tile->tile.block, tile->entity_data[0]);
+        McStatus status = mc_java_building_read_chunk_remap(tile->tile.block, tile->entity_data, tile->entity_size, remap, &record);
+        if(status != MC_OK){
+            mc_java_building_record_destroy(&record);
+            if(strict){
+                mc_save_file_clear_decoded_buildings(save);
+                return status;
+            }
+            continue;
+        }
+        if(save->java_building_count == SIZE_MAX ||
+           save->java_building_count + 1 > SIZE_MAX / sizeof(*save->java_buildings)){
+            mc_java_building_record_destroy(&record);
+            mc_save_file_clear_decoded_buildings(save);
+            return MC_CAPACITY_EXCEEDED;
+        }
+        McJavaBuildingEntity *expanded = realloc(save->java_buildings,
+            (save->java_building_count + 1) * sizeof(*expanded));
+        if(expanded == NULL){
+            mc_java_building_record_destroy(&record);
+            mc_save_file_clear_decoded_buildings(save);
+            return MC_OUT_OF_MEMORY;
+        }
+        save->java_buildings = expanded;
+        McJavaBuildingEntity *entity = &expanded[save->java_building_count++];
+        *entity = (McJavaBuildingEntity){
+            .tile_index = index,
+            .tile_x = (uint16_t)(index % save->map.width),
+            .tile_y = (uint16_t)(index / save->map.width),
+            .record = record
+        };
+    }
+    return MC_OK;
+}
+
+McStatus mc_save_file_decode_buildings(McSaveFile *save, bool strict){
+    return mc_save_file_decode_buildings_internal(save, strict, NULL);
+}
+
+McStatus mc_save_file_decode_buildings_remap(McSaveFile *save, bool strict,
+                                             const McContentRemap *remap){
+    return mc_save_file_decode_buildings_internal(save, strict, remap);
+}
+
+const McJavaBuildingEntity *mc_save_file_building_at(const McSaveFile *save, size_t tile_index){
+    if(save == NULL) return NULL;
+    for(size_t i = 0; i < save->java_building_count; i++){
+        if(save->java_buildings[i].tile_index == tile_index) return &save->java_buildings[i];
+    }
+    return NULL;
 }
 
 static McStatus write_blob_region(McBuffer *stream, const McSaveBlob *blob){

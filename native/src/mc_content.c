@@ -1,5 +1,6 @@
 #include "mindustry.h"
 #include "mindustry_save.h"
+#include "mindustry_content_registry.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -158,6 +159,54 @@ McStatus mc_content_remap_build(const McContentHeader *saved, const McContentGro
                 }
                 if(destination->ids[j] >= 0) break;
             }
+        }
+    }
+    return MC_OK;
+}
+
+static McContentRegistryType registry_type_for_content(uint8_t type){
+    switch(type){
+        case MC_CONTENT_ITEM: return MC_REGISTRY_ITEM;
+        case MC_CONTENT_BLOCK: return MC_REGISTRY_BLOCK;
+        case MC_CONTENT_BULLET: return MC_REGISTRY_BULLET;
+        case MC_CONTENT_LIQUID: return MC_REGISTRY_LIQUID;
+        case MC_CONTENT_STATUS: return MC_REGISTRY_STATUS;
+        case MC_CONTENT_UNIT: return MC_REGISTRY_UNIT;
+        case MC_CONTENT_WEATHER: return MC_REGISTRY_WEATHER;
+        case MC_CONTENT_SECTOR: return MC_REGISTRY_SECTOR;
+        case MC_CONTENT_PLANET: return MC_REGISTRY_PLANET;
+        case MC_CONTENT_TEAM: return MC_REGISTRY_TEAM;
+        default: return MC_REGISTRY_TYPE_COUNT;
+    }
+}
+
+McStatus mc_content_remap_build_builtin(const McContentHeader *saved, McContentRemap *remap){
+    if(saved == NULL || remap == NULL) return MC_INVALID_ARGUMENT;
+    mc_content_remap_destroy(remap);
+    if(saved->count == 0) return MC_OK;
+    remap->groups = calloc(saved->count, sizeof(*remap->groups));
+    if(remap->groups == NULL) return MC_OUT_OF_MEMORY;
+    remap->count = saved->count;
+    for(size_t i = 0; i < saved->count; i++){
+        const McContentGroup *source = &saved->groups[i];
+        McContentRemapGroup *destination = &remap->groups[i];
+        destination->type = source->type;
+        destination->count = source->count;
+        destination->ids = malloc(source->count * sizeof(*destination->ids));
+        if(destination->ids == NULL){
+            mc_content_remap_destroy(remap);
+            return MC_OUT_OF_MEMORY;
+        }
+        McContentRegistryType registry_type = registry_type_for_content(source->type);
+        for(size_t j = 0; j < source->count; j++){
+            destination->ids[j] = -1;
+            if(registry_type == MC_REGISTRY_TYPE_COUNT) continue;
+            const McContentEntry *entry = mc_content_registry_find(registry_type, source->names[j]);
+            if(entry == NULL){
+                const char *fallback = mc_content_name_fallback(source->type, source->names[j]);
+                if(fallback != NULL) entry = mc_content_registry_find(registry_type, fallback);
+            }
+            if(entry != NULL) destination->ids[j] = entry->id;
         }
     }
     return MC_OK;

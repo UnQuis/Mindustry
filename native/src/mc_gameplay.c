@@ -359,10 +359,61 @@ static McEntity *find_building_at(McGameplay *gameplay, uint16_t x, uint16_t y){
     return NULL;
 }
 
+static bool registry_block_to_native(uint16_t block_id, McBlockId *native_id){
+    const McContentEntry *entry = mc_content_registry_find_id(MC_REGISTRY_BLOCK, block_id);
+    if(entry == NULL || native_id == NULL) return false;
+    for(int i = MC_BLOCK_AIR; i <= MC_BLOCK_DUO; i++){
+        if(strcmp(entry->name, mc_block_name((McBlockId)i)) == 0){
+            *native_id = (McBlockId)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static McBlockId map_block_to_native(uint16_t block_id){
+    McBlockId native_id = MC_BLOCK_AIR;
+    if(registry_block_to_native(block_id, &native_id)) return native_id;
+    return block_id <= MC_BLOCK_DUO ? (McBlockId)block_id : MC_BLOCK_AIR;
+}
+
+static bool registry_item_to_native(uint16_t item_id, McItemId *native_id){
+    const McContentEntry *entry = mc_content_registry_find_id(MC_REGISTRY_ITEM, item_id);
+    if(entry == NULL || native_id == NULL) return false;
+    size_t count = 0;
+    const McItemDefinition *items = mc_item_definitions(&count);
+    for(size_t i = 0; i < count; i++){
+        if(strcmp(entry->name, items[i].name) == 0){
+            *native_id = (McItemId)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool registry_liquid_to_native(uint16_t liquid_id, McLiquidId *native_id){
+    const McContentEntry *entry = mc_content_registry_find_id(MC_REGISTRY_LIQUID, liquid_id);
+    static const char *const names[MC_BUILDING_LIQUID_COUNT] = {
+        "water", "slag", "cryofluid", "oil", "neoplasm", "spore-pressure", "arkycite", "fuel"
+    };
+    if(entry == NULL || native_id == NULL) return false;
+    for(size_t i = 0; i < MC_BUILDING_LIQUID_COUNT; i++){
+        if(strcmp(entry->name, names[i]) == 0){
+            *native_id = (McLiquidId)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static const McJavaBuildingEntity *find_java_building(const McGameplay *gameplay, size_t tile_index){
+    return mc_save_file_building_at(&gameplay->save, tile_index);
+}
+
 static McStatus restore_map_buildings(McGameplay *gameplay){
-    McTeam team = MC_TEAM_SHARDED;
+    McTeam default_team = MC_TEAM_SHARDED;
     if(gameplay->runtime.player_team >= 0 && gameplay->runtime.player_team < (int32_t)MC_TEAM_COUNT){
-        team = (McTeam)gameplay->runtime.player_team;
+        default_team = (McTeam)gameplay->runtime.player_team;
     }
     size_t total = (size_t)gameplay->save.map.width * gameplay->save.map.height;
     for(size_t i = 0; i < total; i++){
@@ -370,26 +421,54 @@ static McStatus restore_map_buildings(McGameplay *gameplay){
         if((tile->flags & 1u) == 0 || !tile->entity_center) continue;
         uint16_t x = (uint16_t)(i % gameplay->save.map.width);
         uint16_t y = (uint16_t)(i / gameplay->save.map.width);
-        const McBuildingState *saved_state = mc_building_store_find_tile_const(&gameplay->buildings, x, y);
-        McEntity *entity = saved_state == NULL
+        const McJavaBuildingEntity *java = find_java_building(gameplay, i);
+        const McJavaBuildingRecord *java_record = java == NULL ? NULL : &java->record;
+        McBuildingState *state = mc_building_store_find_tile(&gameplay->buildings, x, y);
+        McBlockId block = map_block_to_native(java_record == NULL ? tile->tile.block : java_record->block_id);
+        McTeam team = default_team;
+        if(java_record != NULL && java_record->team < MC_TEAM_COUNT) team = (McTeam)java_record->team;
+        if(state != NULL){
+            block = state->block;
+            team = state->team;
+        }
+        McEntity *entity = state == NULL
             ? mc_simulation_spawn(&gameplay->simulation, MC_ENTITY_BUILDING, team,
                 ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE)
-            : mc_simulation_spawn_with_id(&gameplay->simulation, MC_ENTITY_BUILDING, saved_state->team,
-                saved_state->entity_id, ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE);
+            : mc_simulation_spawn_with_id(&gameplay->simulation, MC_ENTITY_BUILDING, team, state->entity_id,
+                ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE);
         if(entity == NULL) return MC_CAPACITY_EXCEEDED;
         entity->tile_x = x;
         entity->tile_y = y;
-        entity->block = saved_state == NULL ? (McBlockId)tile->tile.block : saved_state->block;
-        entity->team = saved_state == NULL ? team : saved_state->team;
-        uint16_t block_size = block_size_or_one(tile->tile.block);
+        entity->block = block;
+        entity->team = team;
+        uint16_t block_size = block_size_or_one(block);
         entity->position.x = ((float)x + (float)block_size * 0.5f) * MC_TILE_SIZE;
         entity->position.y = ((float)y + (float)block_size * 0.5f) * MC_TILE_SIZE;
-        entity->health = mc_entity_default_health(MC_ENTITY_BUILDING, entity->block);
-        entity->max_health = entity->health;
+        entity->health = java_record == NULL ? mc_entity_default_health(MC_ENTITY_BUILDING, block) : java_record->health;
+        entity->max_health = mc_entity_default_health(MC_ENTITY_BUILDING, block);
+        if(entity->health > entity->max_health && entity->max_health > 0.0f) entity->health = entity->max_health;
         McStatus status = mc_simulation_attach_entity_data(entity, 0, tile->entity_data, tile->entity_size);
         if(status != MC_OK) return status;
-        if(saved_state == NULL && mc_building_store_add(&gameplay->buildings, entity->id, entity->block, entity->team, x, y) == NULL){
-            return MC_CAPACITY_EXCEEDED;
+        if(state == NULL){
+            state = mc_building_store_add(&gameplay->buildings, entity->id, block, team, x, y);
+            if(state == NULL) return MC_CAPACITY_EXCEEDED;
+        }
+        if(java_record != NULL){
+            state->rotation = java_record->rotation;
+            state->enabled = java_record->enabled;
+            state->efficiency = (float)java_record->efficiency / 255.0f;
+            if(java_record->health <= state->max_health) state->health = java_record->health;
+            for(size_t item = 0; item < MC_CONTENT_REGISTRY_ITEM_COUNT; item++){
+                McItemId native_item;
+                if(registry_item_to_native((uint16_t)item, &native_item)) state->inventory.items[native_item] = (uint32_t)java_record->items[item];
+            }
+            for(size_t liquid = 0; liquid < MC_CONTENT_REGISTRY_LIQUID_COUNT; liquid++){
+                McLiquidId native_liquid;
+                if(registry_liquid_to_native((uint16_t)liquid, &native_liquid) && native_liquid < MC_BUILDING_LIQUID_COUNT){
+                    state->liquids.amount[native_liquid] = java_record->liquids[liquid];
+                }
+            }
+            state->power.satisfaction = java_record->power_status;
         }
     }
     return mc_building_store_rebuild_networks(&gameplay->buildings);
@@ -476,6 +555,11 @@ McStatus mc_gameplay_adopt_save(McGameplay *gameplay, McSaveFile *save,
         status = mc_map_section_apply_content_remap(&gameplay->save.map, remap, unknown_to_air);
         if(status != MC_OK) return status;
     }
+    /* Decode the Java Building chunks only after saved-name remapping: every
+       module and subtype reference is an ID in the current content table. The
+       raw map chunks remain authoritative for lossless re-encoding. */
+    status = mc_save_file_decode_buildings_remap(&gameplay->save, false, remap);
+    if(status != MC_OK) return status;
 
     mc_simulation_reset_runtime(&gameplay->simulation, 1);
     mc_world_destroy(&gameplay->simulation.world);

@@ -105,6 +105,8 @@ MC_API McStatus mc_save_read_content_header(McBuffer *input, McContentHeader *he
 MC_API int32_t mc_content_header_find(const McContentHeader *header, uint8_t type, const char *name);
 MC_API const char *mc_content_name_fallback(uint8_t type, const char *name);
 MC_API McStatus mc_content_remap_build(const McContentHeader *saved, const McContentGroupView *current, size_t current_count, McContentRemap *remap);
+/* Build a remap directly against the canonical Java registration table. */
+MC_API McStatus mc_content_remap_build_builtin(const McContentHeader *saved, McContentRemap *remap);
 MC_API int32_t mc_content_remap_find(const McContentRemap *remap, uint8_t type, uint16_t saved_id);
 MC_API void mc_content_remap_destroy(McContentRemap *remap);
 MC_API void mc_content_header_destroy(McContentHeader *header);

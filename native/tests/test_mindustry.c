@@ -12,6 +12,8 @@
 #include "mindustry_building_snapshot.h"
 #include "mindustry_building_inspection.h"
 #include "mindustry_content_registry.h"
+#include "mindustry_building_codec.h"
+#include "mindustry_combat.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -1341,6 +1343,435 @@ static void test_full_content_registry(void){
     mc_buffer_destroy(&manifest);
 }
 
+static uint16_t test_block_field(const char *field){
+    size_t count = 0;
+    const McContentEntry *entries = mc_content_registry_entries(&count);
+    for(size_t i = 0; i < count; i++){
+        if(entries[i].type == MC_REGISTRY_BLOCK && strcmp(entries[i].java_field, field) == 0) return entries[i].id;
+    }
+    assert(!"missing Java block field");
+    return UINT16_MAX;
+}
+
+static void test_java_building_codec_roundtrip(McJavaBuildingRecord *record){
+    McBuffer encoded, encoded_again;
+    mc_buffer_init(&encoded);
+    mc_buffer_init(&encoded_again);
+    assert(mc_java_building_write_chunk(record, &encoded) == MC_OK);
+    McJavaBuildingRecord decoded;
+    mc_java_building_record_init(&decoded, record->block_id, record->revision);
+    assert(mc_java_building_read_chunk(record->block_id, encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(decoded.block_id == record->block_id);
+    assert(decoded.revision == record->revision);
+    assert(decoded.family == record->family);
+    assert(decoded.extension.variant == record->extension.variant);
+    assert(decoded.extension.raw_exact);
+    assert(mc_java_building_write_chunk(&decoded, &encoded_again) == MC_OK);
+    assert(encoded_again.size == encoded.size);
+    assert(memcmp(encoded_again.data, encoded.data, encoded.size) == 0);
+    mc_java_building_record_destroy(&decoded);
+    mc_buffer_destroy(&encoded_again);
+    mc_buffer_destroy(&encoded);
+}
+
+static McJavaBuildingRecord test_java_record(const char *field, uint8_t revision){
+    McJavaBuildingRecord record;
+    mc_java_building_record_init(&record, test_block_field(field), revision);
+    record.health = 240.0f;
+    record.team = MC_TEAM_SHARDED;
+    record.rotation = 2;
+    record.module_bits = 0x0fu;
+    record.items[0] = 7;
+    record.items[4] = 2;
+    record.liquids[0] = 12.5f;
+    record.power_status = 0.875f;
+    record.power_link_count = 2;
+    record.power_links[0] = 101;
+    record.power_links[1] = 202;
+    record.extension.raw_exact = false;
+    return record;
+}
+
+static void test_java_building_codec(void){
+    McJavaBuildingRecord record;
+
+    record = test_java_record("conveyor", 1);
+    record.extension.data.conveyor.count = 2;
+    record.extension.data.conveyor.items[0] = (McJavaConveyorItem){0, -4, 12};
+    record.extension.data.conveyor.items[1] = (McJavaConveyorItem){4, 9, -8};
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("junction", 1);
+    for(size_t i = 0; i < 4; i++){
+        record.extension.data.directional_buffer.buffer.sides[i].index = (uint8_t)i;
+        record.extension.data.directional_buffer.buffer.sides[i].encoded_capacity = (uint8_t)(i + 1);
+        record.extension.data.directional_buffer.buffer.sides[i].values[0] = UINT64_C(0x0102030405060708) + i;
+    }
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("itemBridge", 1);
+    record.extension.data.buffered_item_bridge.link = 123;
+    record.extension.data.buffered_item_bridge.warmup = 0.25f;
+    record.extension.data.buffered_item_bridge.incoming_count = 1;
+    record.extension.data.buffered_item_bridge.incoming[0] = 456;
+    record.extension.data.buffered_item_bridge.moved = true;
+    record.extension.data.buffered_item_bridge.buffer.index = 1;
+    record.extension.data.buffered_item_bridge.buffer.encoded_capacity = 2;
+    record.extension.data.buffered_item_bridge.buffer.values[0] = UINT64_C(0x1020304050607080);
+    record.extension.data.buffered_item_bridge.buffer.values[1] = UINT64_C(0x8070605040302010);
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("phaseConveyor", 1);
+    record.extension.data.item_bridge.link = 1234;
+    record.extension.data.item_bridge.warmup = 0.45f;
+    record.extension.data.item_bridge.incoming_count = 2;
+    record.extension.data.item_bridge.incoming[0] = 55;
+    record.extension.data.item_bridge.incoming[1] = 66;
+    record.extension.data.item_bridge.moved = true;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadConveyor", 1);
+    record.extension.data.conveyor.progress = 0.25f;
+    record.extension.data.conveyor.item_rotation = 90.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadRouter", 1);
+    record.extension.data.conveyor.progress = 0.75f;
+    record.extension.data.conveyor.item_rotation = 180.0f;
+    record.extension.data.conveyor.sort_type = MC_CONTENT_ITEM;
+    record.extension.data.conveyor.sort_item = 4;
+    record.extension.data.conveyor.rec_dir = 2;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("unitCargoLoader", 1);
+    record.extension.data.unit_cargo_loader.unit_id = 8;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("unitCargoUnloadPoint", 1);
+    record.extension.data.unit_cargo_unload_point.item_id = 4;
+    record.extension.data.unit_cargo_unload_point.stale = true;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("sorter", 2);
+    record.extension.data.item_filter.sort_item = 4;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("ductUnloader", 1);
+    record.extension.data.item_filter.sort_item = 3;
+    record.extension.data.item_filter.offset = -2;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("duct", 1);
+    record.extension.data.item_filter.rec_dir = 3;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("ductRouter", 1);
+    record.extension.data.item_filter.sort_item = 6;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("massDriver", 1);
+    record.extension.data.mass_driver.link = -1;
+    record.extension.data.mass_driver.rotation = 91.0f;
+    record.extension.data.mass_driver.state = 2;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("plastaniumConveyor", 1);
+    record.extension.data.stack_conveyor.link = 33;
+    record.extension.data.stack_conveyor.cooldown = 4.5f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("siliconSmelter", 1);
+    record.extension.data.crafter.progress = 0.31f;
+    record.extension.data.crafter.warmup = 0.77f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("cultivator", 1);
+    record.extension.data.crafter.progress = 0.31f;
+    record.extension.data.crafter.warmup = 0.77f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("separator", 1);
+    record.extension.data.crafter.progress = 0.11f;
+    record.extension.data.crafter.warmup = 0.22f;
+    record.extension.data.crafter.seed = 9182;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("mechanicalDrill", 1);
+    record.extension.data.drill.progress = 4.0f;
+    record.extension.data.drill.warmup = 0.8f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("plasmaBore", 1);
+    record.extension.data.beam_drill.time = 33.0f;
+    record.extension.data.beam_drill.warmup = 0.5f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("groundFactory", 3);
+    record.extension.data.factory.progress = 0.62f;
+    record.extension.data.factory.plan = 4;
+    record.extension.data.factory.command_position = true;
+    record.extension.data.factory.command_x = 10.0f;
+    record.extension.data.factory.command_y = -7.0f;
+    record.extension.data.factory.command = 2;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("additiveReconstructor", 3);
+    record.extension.data.factory.progress = 0.12f;
+    record.extension.data.factory.plan = 1;
+    record.extension.data.factory.command_position = false;
+    record.extension.data.factory.command = 255;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("constructor", 1);
+    record.extension.data.constructor.recipe = 9;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadMassDriver", 1);
+    record.extension.data.mass_driver.link = 44;
+    record.extension.data.mass_driver.rotation = 12.0f;
+    record.extension.data.mass_driver.state = 1;
+    record.extension.data.mass_driver.reload = 3.0f;
+    record.extension.data.mass_driver.charge = 0.5f;
+    record.extension.data.mass_driver.loaded = true;
+    record.extension.data.mass_driver.charging = false;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadLoader", 1);
+    record.extension.data.payload_loader.exporting = true;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadSource", 1);
+    record.extension.data.payload_source.unit_id = 3;
+    record.extension.data.payload_source.block_id = 382;
+    record.extension.data.payload_source.command_position = true;
+    record.extension.data.payload_source.command_x = 3.0f;
+    record.extension.data.payload_source.command_y = -2.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("payloadVoid", 1);
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("tankAssembler", 1);
+    record.extension.data.assembler.progress = 0.44f;
+    record.extension.data.assembler.unit_count = 2;
+    record.extension.data.assembler.units[0] = 100;
+    record.extension.data.assembler.units[1] = 101;
+    record.extension.data.assembler.payload_count = 2;
+    record.extension.data.assembler.payloads[0] = (McJavaPayloadEntry){1, 55, 2};
+    record.extension.data.assembler.payloads[1] = (McJavaPayloadEntry){1, 56, 1};
+    record.extension.data.assembler.command_position = true;
+    record.extension.data.assembler.command_x = 1.0f;
+    record.extension.data.assembler.command_y = 2.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("duo", 1);
+    record.extension.data.turret.reload = 17.0f;
+    record.extension.data.turret.rotation = 135.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("scatter", 2);
+    record.extension.data.turret.reload = 4.0f;
+    record.extension.data.turret.rotation = 45.0f;
+    record.extension.data.turret.ammo_count = 2;
+    record.extension.data.turret.ammo[0].item_id = 0;
+    record.extension.data.turret.ammo[0].amount = 20;
+    record.extension.data.turret.ammo[1].item_id = 4;
+    record.extension.data.turret.ammo[1].amount = 10;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("segment", 3);
+    record.extension.data.turret.reload = 2.0f;
+    record.extension.data.turret.rotation = 270.0f;
+    record.extension.data.turret.last_length = 8.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("repairTurret", 1);
+    record.extension.data.rotating_turret.rotation = 77.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("buildTower", 1);
+    record.extension.data.build_turret.rotation = 180.0f;
+    record.extension.data.build_turret.plan_count = 0;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    assert(strcmp(mc_java_building_family_name(MC_JAVA_BUILDING_ITEM_TRANSPORT), "item-transport") == 0);
+    assert(strcmp(mc_java_building_variant_name(MC_JAVA_BUILDING_VARIANT_ITEM_TURRET), "item-turret") == 0);
+
+    record = test_java_record("duo", 3);
+    record.items[0] = 11;
+    record.extension.raw_exact = false;
+    McBuffer remap_bytes;
+    mc_buffer_init(&remap_bytes);
+    assert(mc_java_building_write_chunk(&record, &remap_bytes) == MC_OK);
+    int32_t item_ids[] = {4};
+    McContentRemapGroup remap_group = {MC_CONTENT_ITEM, item_ids, 1};
+    McContentRemap remap = {&remap_group, 1};
+    McJavaBuildingRecord remapped;
+    mc_java_building_record_init(&remapped, record.block_id, record.revision);
+    assert(mc_java_building_read_chunk_remap(record.block_id, remap_bytes.data, remap_bytes.size, &remap, &remapped) == MC_OK);
+    assert(remapped.items[0] == 0 && remapped.items[4] == 11);
+    mc_java_building_record_destroy(&remapped);
+
+    McBuffer trailing;
+    mc_buffer_init(&trailing);
+    assert(mc_buffer_write_bytes(&trailing, remap_bytes.data, remap_bytes.size) == MC_OK);
+    assert(mc_buffer_write_u8(&trailing, 0xa5u) == MC_OK);
+    mc_java_building_record_init(&remapped, record.block_id, record.revision);
+    assert(mc_java_building_read_chunk(record.block_id, trailing.data, trailing.size, &remapped) == MC_OK);
+    McBuffer trailing_roundtrip;
+    mc_buffer_init(&trailing_roundtrip);
+    assert(mc_java_building_write_chunk(&remapped, &trailing_roundtrip) == MC_OK);
+    assert(trailing_roundtrip.size == trailing.size && memcmp(trailing_roundtrip.data, trailing.data, trailing.size) == 0);
+    assert(mc_java_building_read_chunk(record.block_id, remap_bytes.data, remap_bytes.size - 1, &remapped) != MC_OK);
+    mc_java_building_record_destroy(&remapped);
+    mc_buffer_destroy(&trailing_roundtrip);
+    mc_buffer_destroy(&trailing);
+    mc_buffer_destroy(&remap_bytes);
+    mc_java_building_record_destroy(&record);
+}
+
+static void test_java_building_msav_integration(void){
+    McJavaBuildingRecord record;
+    mc_java_building_record_init(&record, test_block_field("duo"), 1);
+    record.health = 31.5f;
+    record.team = MC_TEAM_CRUX;
+    record.module_bits = 0x0fu;
+    record.items[0] = 3;
+    record.liquids[0] = 2.5f;
+    record.power_status = 0.75f;
+    record.extension.data.turret.reload = 4.0f;
+    record.extension.data.turret.rotation = 90.0f;
+    record.extension.raw_exact = false;
+
+    McBuffer entity_chunk;
+    mc_buffer_init(&entity_chunk);
+    assert(mc_java_building_write_chunk(&record, &entity_chunk) == MC_OK);
+
+    McMapSection map = {0};
+    assert(mc_map_section_init(&map, 1, 1) == MC_OK);
+    map.tiles[0].tile.block = record.block_id;
+    map.tiles[0].flags = 1;
+    map.tiles[0].entity_center = true;
+    map.tiles[0].entity_size = entity_chunk.size;
+    map.tiles[0].entity_data = malloc(entity_chunk.size);
+    assert(map.tiles[0].entity_data != NULL);
+    memcpy(map.tiles[0].entity_data, entity_chunk.data, entity_chunk.size);
+
+    static char *meta_keys[] = {"mapname", "width", "height"};
+    static char *meta_values[] = {"java-building-msav", "1", "1"};
+    static char *block_names[] = {"duo"};
+    static McContentGroup content_group = {MC_CONTENT_BLOCK, block_names, 1};
+    static const uint8_t patches[] = {0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t entities[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t markers[] = {'{', '}'};
+    static const uint8_t custom[] = {0, 0, 0, 0};
+    McSaveFile source = {
+        .version = 13,
+        .meta = {.keys = meta_keys, .values = meta_values, .count = 3},
+        .patches = {(uint8_t *)patches, sizeof(patches)},
+        .content = {.groups = &content_group, .count = 1},
+        .map = map,
+        .entities = {(uint8_t *)entities, sizeof(entities)},
+        .markers = {(uint8_t *)markers, sizeof(markers)},
+        .custom = {(uint8_t *)custom, sizeof(custom)}
+    };
+    McBuffer compressed;
+    mc_buffer_init(&compressed);
+    assert(mc_save_file_write(&source, &compressed) == MC_OK);
+    McSaveFile loaded = {0};
+    assert(mc_save_file_load(compressed.data, compressed.size, &loaded) == MC_OK);
+    assert(mc_save_file_decode_buildings(&loaded, true) == MC_OK);
+    assert(loaded.java_building_count == 1);
+    const McJavaBuildingEntity *decoded = mc_save_file_building_at(&loaded, 0);
+    assert(decoded != NULL && decoded->record.block_id == record.block_id);
+    assert(decoded->record.team == MC_TEAM_CRUX);
+    assert(decoded->record.items[0] == 3);
+    assert(decoded->record.extension.data.turret.rotation == 90.0f);
+    assert(decoded->record.extension.raw_exact);
+    McBuffer rewritten;
+    mc_buffer_init(&rewritten);
+    assert(mc_save_file_write(&loaded, &rewritten) == MC_OK);
+    McSaveFile loaded_again = {0};
+    assert(mc_save_file_load(rewritten.data, rewritten.size, &loaded_again) == MC_OK);
+    assert(loaded_again.map.tiles[0].entity_size == entity_chunk.size);
+    assert(memcmp(loaded_again.map.tiles[0].entity_data, entity_chunk.data, entity_chunk.size) == 0);
+    mc_save_file_destroy(&loaded_again);
+    mc_buffer_destroy(&rewritten);
+    mc_save_file_destroy(&loaded);
+    mc_map_section_destroy(&map);
+    mc_buffer_destroy(&entity_chunk);
+    mc_buffer_destroy(&compressed);
+    mc_java_building_record_destroy(&record);
+}
+
+static void test_combat_and_bullets(void){
+    assert(mc_bullet_definition_validate() == MC_OK);
+    assert(mc_bullet_definition_count() == MC_COMBAT_DEFAULT_BULLET_TYPES);
+    assert(mc_bullet_definition_by_name("fireball") != NULL);
+    McCombatWorld world;
+    mc_combat_init(&world, 256);
+    McCombatTarget *target = mc_combat_add_target(&world, 100, MC_COMBAT_TARGET_UNIT, 1, 2.0f, 0.0f, 1.0f, 40.0f, 0.0f);
+    assert(target != NULL);
+    McCombatTarget *splash = mc_combat_add_target(&world, 101, MC_COMBAT_TARGET_UNIT, 1, 3.0f, 0.0f, 1.0f, 40.0f, 0.0f);
+    assert(splash != NULL);
+    assert(mc_combat_apply_status(target, 1, 2.0f) == MC_OK);
+    assert(mc_combat_status_multiplier(target, 1) == 1.0f);
+    McCombatTurret *turret = mc_combat_add_turret(&world, 10, 0, 0.0f, 0.0f, 0);
+    assert(turret != NULL);
+    assert(mc_combat_set_turret(turret, 10.0f, 0.1f, 20, 1.0f, 1.0f) == MC_OK);
+    assert(mc_combat_fire(&world, 10, 10, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f) != NULL);
+    turret->ammo = 0;
+    assert(mc_combat_step_ticks(&world, 120) == MC_OK);
+    assert(world.shots > 0 && world.hits > 0);
+    assert(target->health < target->max_health || splash->health < splash->max_health);
+    assert(mc_combat_event_count_since(&world, 0) > 0);
+    uint64_t state_hash = mc_combat_state_hash(&world);
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_combat_write(&world, &encoded) == MC_OK);
+    McCombatWorld decoded;
+    mc_combat_init(&decoded, 256);
+    assert(mc_combat_read(encoded.data, encoded.size, &decoded) == MC_OK);
+    assert(mc_combat_state_hash(&decoded) == state_hash);
+    assert(mc_combat_remove_turret(&decoded, 10) == MC_OK);
+    assert(mc_combat_remove_target(&decoded, 100) == MC_OK);
+    mc_combat_destroy(&decoded);
+    mc_buffer_destroy(&encoded);
+    mc_combat_destroy(&world);
+}
+
 static void test_content_table(void){
     size_t count = 0;
     const McItemDefinition *items = mc_item_definitions(&count);
@@ -1381,6 +1812,9 @@ int main(void){
     test_block_placement();
     test_deterministic_steps();
     test_full_content_registry();
+    test_java_building_codec();
+    test_java_building_msav_integration();
+    test_combat_and_bullets();
     test_content_table();
     puts("native tests: ok");
     return 0;

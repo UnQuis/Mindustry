@@ -24,6 +24,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Raw save loader/writer preserving patches, entity, marker and custom regions as opaque bytes.
 - [x] Semantic patch, entity/team-plan, UBJSON MapMarkers and custom-chunk codecs with raw-region preservation.
 - [x] Content header mapping and serialized-name remapping, including legacy block aliases.
+- [x] Map-section to `McWorld` restoration API.
 - [x] Lossless raw map-section codec for building entity chunks and tile data records.
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and raw TypeIO configs.
 - [x] Pure-C PNG RGB/RGBA codec with CRC validation and all five row filters.

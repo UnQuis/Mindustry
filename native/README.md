@@ -13,7 +13,7 @@ This directory is the first migration milestone for a native C implementation of
 - Validated read/write composition for current `.msav` streams, including metadata and content-name mappings.
 - A full raw save loader/writer that preserves patches, entity, marker and custom regions.
 - Semantic codecs for data patches, entity mappings/team plans, UBJSON MapMarkers and custom chunks, while retaining their raw regions for exact round trips.
-- Content-header remapping by serialized name, including legacy block aliases.
+- Content-header remapping by serialized name, including legacy block aliases, plus map-section to `McWorld` restoration.
 - A lossless raw map-section codec for building entity chunks and tile data records.
 - A version-1 `msch` schematic codec for dictionary, tags, positions, rotations and raw TypeIO configs.
 - A pure-C PNG codec for RGB/RGBA map images with CRC validation and all PNG row filters.

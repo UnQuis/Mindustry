@@ -6,11 +6,90 @@
 #include "mindustry_png.h"
 #include "mindustry_map.h"
 #include "mindustry_save_loader.h"
+#include "mindustry_gameplay.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void test_gameplay_state_integration(void){
+    McMapSection map = {0};
+    assert(mc_map_section_init(&map, 3, 2) == MC_OK);
+    map.tiles[0].tile.block = MC_BLOCK_CONVEYOR;
+    map.tiles[0].flags = 1;
+    map.tiles[0].entity_center = true;
+    map.tiles[0].entity_data = malloc(1);
+    assert(map.tiles[0].entity_data != NULL);
+    map.tiles[0].entity_data[0] = 0;
+    map.tiles[0].entity_size = 1;
+
+    static char *keys[] = {"mapname", "wave", "tick", "wavetime", "playerteam", "width", "height"};
+    static char *values[] = {"gameplay-fixture", "3", "120", "4.5", "2", "3", "2"};
+    static char *blocks[] = {"air", "core-shard", "mechanical-drill", "conveyor", "duo"};
+    static McContentGroup content_group = {MC_CONTENT_BLOCK, blocks, 5};
+    static uint8_t patches[] = {0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0};
+    static uint8_t entities[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static uint8_t markers[] = {'{', '}'};
+    static uint8_t custom[] = {0, 0, 0, 0};
+    McSaveFile source = {
+        .version = 13,
+        .meta = {.keys = keys, .values = values, .count = 7},
+        .patches = {patches, sizeof(patches)},
+        .content = {.groups = &content_group, .count = 1},
+        .map = map,
+        .entities = {entities, sizeof(entities)},
+        .markers = {markers, sizeof(markers)},
+        .custom = {custom, sizeof(custom)}
+    };
+
+    McBuffer encoded;
+    mc_buffer_init(&encoded);
+    assert(mc_save_file_write(&source, &encoded) == MC_OK);
+    McGameplay gameplay = {0};
+    assert(mc_gameplay_init(&gameplay, 1, 1, 123) == MC_OK);
+    assert(mc_gameplay_load(&gameplay, encoded.data, encoded.size, NULL, false) == MC_OK);
+    assert(gameplay.runtime.wave == 3 && gameplay.runtime.tick == 120);
+    assert(gameplay.runtime.player_team == 2);
+    assert(strcmp(gameplay.runtime.map_name, "gameplay-fixture") == 0);
+    assert(gameplay.simulation.world.width == 3 && gameplay.simulation.world.height == 2);
+    assert(mc_gameplay_tile(&gameplay, 0, 0)->block == MC_BLOCK_CONVEYOR);
+    assert(mc_gameplay_tile_data(&gameplay, 0, 0)->extra_data == 0);
+    assert(gameplay.teams[MC_TEAM_BLUE].building_count == 1);
+
+    assert(mc_gameplay_set_wave(&gameplay, 7, 2.25f) == MC_OK);
+    assert(mc_gameplay_add_items(&gameplay, MC_TEAM_BLUE, MC_ITEM_COPPER, 25) == MC_OK);
+    assert(mc_inventory_count(&gameplay.simulation.team_inventory[MC_TEAM_BLUE], MC_ITEM_COPPER) == 25);
+    assert(mc_gameplay_place_block(&gameplay, MC_BLOCK_DUO, MC_TEAM_BLUE, 2, 1) == MC_OK);
+    static uint8_t unit_payload[] = {9, 0, 0, 0, 100};
+    McEntity *unit = mc_gameplay_spawn_raw(&gameplay, MC_ENTITY_UNKNOWN, MC_TEAM_BLUE, 100, 16.0f, 8.0f,
+                                            9, unit_payload, sizeof(unit_payload));
+    assert(unit != NULL && unit->save_size == sizeof(unit_payload));
+    assert(mc_gameplay_damage_entity(&gameplay, unit->id, 0.1f, MC_TEAM_CRUX) == MC_OK);
+    assert(mc_gameplay_heal_entity(&gameplay, unit->id, 0.03f) == MC_OK);
+    assert(mc_gameplay_step(&gameplay) == MC_OK);
+    assert(gameplay.counters.blocks_placed == 1 && gameplay.counters.entities_spawned == 2);
+
+    McBuffer rewritten;
+    mc_buffer_init(&rewritten);
+    assert(mc_gameplay_write(&gameplay, &rewritten) == MC_OK);
+    McGameplay restored = {0};
+    assert(mc_gameplay_init(&restored, 1, 1, 99) == MC_OK);
+    assert(mc_gameplay_load(&restored, rewritten.data, rewritten.size, NULL, false) == MC_OK);
+    assert(restored.runtime.wave == 7 && restored.runtime.tick == gameplay.simulation.tick);
+    assert(mc_gameplay_tile(&restored, 2, 1)->block == MC_BLOCK_DUO);
+    assert(restored.save.entity_data.record_count == 1);
+    assert(restored.save.entity_data.records[0].id == 100);
+    assert(restored.teams[MC_TEAM_BLUE].building_count == 2);
+    assert(mc_gameplay_remove_block(&restored, 2, 1) == MC_OK);
+    assert(mc_gameplay_tile(&restored, 2, 1)->block == MC_BLOCK_AIR);
+    assert(restored.counters.blocks_removed == 1);
+    mc_gameplay_destroy(&restored);
+    mc_gameplay_destroy(&gameplay);
+    mc_buffer_destroy(&rewritten);
+    mc_buffer_destroy(&encoded);
+    mc_map_section_destroy(&map);
+}
 
 static void test_map_section_entity_records(void){
     McMapSection source = {0};
@@ -47,6 +126,7 @@ static void test_map_section_entity_records(void){
     McWorld world = {0};
     assert(mc_map_section_copy_to_world(&decoded, &world) == MC_OK);
     assert(world.width == 3 && world.height == 2 && world.tiles[3].block == MC_BLOCK_CONVEYOR);
+    assert(world.tile_data[3].data == 7 && world.tile_data[3].extra_data == 0x12345678);
     mc_world_destroy(&world);
     mc_map_section_destroy(&decoded);
     mc_buffer_destroy(&encoded);
@@ -697,6 +777,7 @@ static void test_content_table(void){
 }
 
 int main(void){
+    test_gameplay_state_integration();
     test_map_section_entity_records();
     test_full_save_loader();
     test_markers_codec();

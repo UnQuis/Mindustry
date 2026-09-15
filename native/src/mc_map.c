@@ -199,7 +199,15 @@ McStatus mc_map_section_copy_to_world(const McMapSection *section, McWorld *worl
     McStatus status = mc_world_init(&decoded, section->width, section->height);
     if(status != MC_OK) return status;
     size_t total = tile_count(section);
-    for(size_t i = 0; i < total; i++) decoded.tiles[i] = section->tiles[i].tile;
+    for(size_t i = 0; i < total; i++){
+        decoded.tiles[i] = section->tiles[i].tile;
+        decoded.tile_data[i] = (McTileData){
+            .data = section->tiles[i].data,
+            .floor_data = section->tiles[i].floor_data,
+            .overlay_data = section->tiles[i].overlay_data,
+            .extra_data = section->tiles[i].extra_data
+        };
+    }
     mc_world_destroy(world);
     *world = decoded;
     return MC_OK;

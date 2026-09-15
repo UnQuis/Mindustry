@@ -6,6 +6,7 @@ This directory is the first migration milestone for a native C implementation of
 
 - A C17, dependency-free deterministic simulation kernel.
 - Explicit world/tile, item/inventory, entity, block and tick APIs.
+- An owned gameplay-state layer that loads MSAV state into the simulation, tracks runtime metadata, synchronizes mutations back to MSAV, and exposes world/entity/team operations.
 - A small content table seeded from the current `Items.java` values.
 - A Java-compatible uncompressed map-section codec for plain tiles and RLE.
 - Java-compatible MSAV headers, length-prefixed regions, string maps and modified UTF-8 helpers.

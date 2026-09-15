@@ -28,7 +28,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Lossless raw map-section codec for building entity chunks and tile data records.
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and raw TypeIO configs.
 - [x] Pure-C PNG RGB/RGBA codec with CRC validation and all five row filters.
-- [ ] Apply decoded building/entity/team-plan/custom state to the native gameplay model and write stateful saves.
+- [x] Gameplay-state bridge: load MSAV metadata, map tile data, building records and raw world entities into native state; synchronize map/entity mutations and runtime metadata back into stateful MSAV saves.
 
 ## Not ported yet
 
@@ -37,7 +37,7 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [ ] Full world simulation: building behaviors, item/liquid/power graphs, fluids, status effects, damage, physics and collision.
 - [ ] Unit AI, pathfinding, wave spawning, campaign and objectives.
 - [ ] Logic assembler and executor, including all instructions and sensors.
-- [ ] Native gameplay integration for decoded building state, entities, team plans, MapMarkers/objectives and custom chunk schemas. Serialization and lossless loading gates are implemented; the gameplay model does not consume every decoded field yet.
+- [ ] Full semantic gameplay parity for decoded state: Java-generated entity field schemas, building inventories/networks, team plans, MapMarkers/objectives and registered custom-chunk behavior are not all modeled yet. The bridge preserves unmodeled bytes.
 - [ ] Client/server protocol, LAN discovery, administration and replay behavior.
 - [ ] JavaScript mods and the public mod/content API.
 - [ ] Pixel-equivalent rendering, audio mixing, particles, shaders, UI and localization.

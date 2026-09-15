@@ -24,7 +24,10 @@ typedef struct McTeamPlan{
 } McTeamPlan;
 
 typedef struct McEntityRecord{
-    /* Exact payload inside SaveVersion.writeChunk, excluding its uint32 length. */
+    /* The generated entity header inside SaveVersion.writeChunk. */
+    uint8_t class_id;
+    uint32_t id;
+    /* Exact payload, including class_id and id, excluding its uint32 length. */
     uint8_t *data;
     size_t size;
 } McEntityRecord;

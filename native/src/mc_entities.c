@@ -108,6 +108,11 @@ McStatus mc_entities_read(const uint8_t *data, size_t size, McEntitiesRegion *en
             entities->records[i].size = length;
             status = copy_bytes(&input, length, &entities->records[i].data);
             if(status != MC_OK) goto failure;
+            entities->records[i].class_id = entities->records[i].data[0];
+            entities->records[i].id = ((uint32_t)entities->records[i].data[1] << 24) |
+                                       ((uint32_t)entities->records[i].data[2] << 16) |
+                                       ((uint32_t)entities->records[i].data[3] << 8) |
+                                       entities->records[i].data[4];
         }
     }
     if(input.position != input.size){ status = MC_FORMAT_ERROR; goto failure; }
@@ -166,9 +171,15 @@ McStatus mc_entities_write(const McEntitiesRegion *entities, McBuffer *output){
     status = write_i32_count(output, entities->record_count);
     for(size_t i = 0; status == MC_OK && i < entities->record_count; i++){
         const McEntityRecord *record = &entities->records[i];
-        if(record->size < 5 || record->size > UINT32_MAX || (record->data == NULL && record->size != 0)) return MC_INVALID_ARGUMENT;
-        status = mc_buffer_write_u32_be(output, (uint32_t)record->size);
-        if(status == MC_OK) status = mc_buffer_write_bytes(output, record->data, record->size);
+        if(record->size == 0){
+            status = mc_buffer_write_u32_be(output, 5);
+            if(status == MC_OK) status = mc_buffer_write_u8(output, record->class_id);
+            if(status == MC_OK) status = mc_buffer_write_u32_be(output, record->id);
+        }else{
+            if(record->size < 5 || record->size > UINT32_MAX || record->data == NULL) return MC_INVALID_ARGUMENT;
+            status = mc_buffer_write_u32_be(output, (uint32_t)record->size);
+            if(status == MC_OK) status = mc_buffer_write_bytes(output, record->data, record->size);
+        }
     }
     return status;
 }

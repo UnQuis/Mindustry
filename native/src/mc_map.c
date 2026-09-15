@@ -191,6 +191,20 @@ McStatus mc_map_section_read(const uint8_t *data, size_t size, McMapSection *sec
     return MC_OK;
 }
 
+McStatus mc_map_section_copy_to_world(const McMapSection *section, McWorld *world){
+    if(section == NULL || world == NULL || section->tiles == NULL || section->width == 0 || section->height == 0){
+        return MC_INVALID_ARGUMENT;
+    }
+    McWorld decoded = {0};
+    McStatus status = mc_world_init(&decoded, section->width, section->height);
+    if(status != MC_OK) return status;
+    size_t total = tile_count(section);
+    for(size_t i = 0; i < total; i++) decoded.tiles[i] = section->tiles[i].tile;
+    mc_world_destroy(world);
+    *world = decoded;
+    return MC_OK;
+}
+
 McStatus mc_map_section_apply_content_remap(McMapSection *section, const McContentRemap *remap, bool unknown_to_air){
     if(section == NULL || remap == NULL || section->tiles == NULL || section->width == 0 || section->height == 0){
         return MC_INVALID_ARGUMENT;

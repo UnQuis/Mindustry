@@ -36,6 +36,7 @@ typedef struct McSaveFile{
    opaque bytes. Map tiles and map entity chunks are decoded losslessly. */
 MC_API McStatus mc_save_file_load(const uint8_t *compressed, size_t size, McSaveFile *save);
 MC_API McStatus mc_save_file_write(const McSaveFile *save, McBuffer *compressed);
+MC_API McStatus mc_save_file_copy_world(const McSaveFile *save, McWorld *world);
 MC_API void mc_save_file_destroy(McSaveFile *save);
 
 #endif

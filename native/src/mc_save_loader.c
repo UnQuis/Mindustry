@@ -127,6 +127,11 @@ failure:
     return status == MC_OK ? MC_FORMAT_ERROR : status;
 }
 
+McStatus mc_save_file_copy_world(const McSaveFile *save, McWorld *world){
+    if(save == NULL || world == NULL) return MC_INVALID_ARGUMENT;
+    return mc_map_section_copy_to_world(&save->map, world);
+}
+
 static McStatus write_blob_region(McBuffer *stream, const McSaveBlob *blob){
     return mc_save_write_region(stream, blob->data, blob->size);
 }

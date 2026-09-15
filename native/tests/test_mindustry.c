@@ -44,6 +44,10 @@ static void test_map_section_entity_records(void){
     assert(decoded.tiles[4].entity_center && decoded.tiles[4].entity_size == 4);
     assert(memcmp(decoded.tiles[4].entity_data, entity_fixture, sizeof(entity_fixture)) == 0);
     assert(decoded.tiles[5].flags == 1 && !decoded.tiles[5].entity_center);
+    McWorld world = {0};
+    assert(mc_map_section_copy_to_world(&decoded, &world) == MC_OK);
+    assert(world.width == 3 && world.height == 2 && world.tiles[3].block == MC_BLOCK_CONVEYOR);
+    mc_world_destroy(&world);
     mc_map_section_destroy(&decoded);
     mc_buffer_destroy(&encoded);
     mc_map_section_destroy(&source);
@@ -90,6 +94,10 @@ static void test_full_save_loader(void){
     assert(mc_content_header_find(&loaded.content, MC_CONTENT_BLOCK, "duo") == 4);
     assert(loaded.map.tiles[3].entity_size == 3);
     assert(memcmp(loaded.map.tiles[3].entity_data, "xyz", 3) == 0);
+    McWorld restored_world = {0};
+    assert(mc_save_file_copy_world(&loaded, &restored_world) == MC_OK);
+    assert(restored_world.width == 2 && restored_world.height == 2);
+    mc_world_destroy(&restored_world);
     assert(loaded.entities.size == sizeof(entities) && memcmp(loaded.entities.data, entities, sizeof(entities)) == 0);
     assert(loaded.entity_data.mapping_count == 0 && loaded.entity_data.record_count == 0);
     assert(loaded.markers.size == sizeof(markers) && memcmp(loaded.markers.data, markers, sizeof(markers)) == 0);
@@ -186,6 +194,7 @@ static void test_entities_region_codec(void){
     assert(decoded.plans[0].x == -4 && decoded.plans[0].config_size == sizeof(config));
     assert(memcmp(decoded.plans[0].config, config, sizeof(config)) == 0);
     assert(decoded.record_count == 1 && decoded.records[0].size == sizeof(record_data));
+    assert(decoded.records[0].class_id == 7 && decoded.records[0].id == 9);
     assert(memcmp(decoded.records[0].data, record_data, sizeof(record_data)) == 0);
     mc_entities_destroy(&decoded);
     mc_buffer_destroy(&encoded);

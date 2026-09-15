@@ -39,4 +39,7 @@ MC_API McStatus mc_buffer_read_bytes(McBuffer *buffer, void *destination, size_t
 MC_API McStatus mc_map_write_section(const McWorld *world, McBuffer *output);
 MC_API McStatus mc_map_read_section(McWorld *world, const uint8_t *data, size_t size);
 
+/* The registry uses McBuffer for its deterministic manifest codec. */
+#include "mindustry_content_registry.h"
+
 #endif

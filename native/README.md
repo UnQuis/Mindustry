@@ -11,7 +11,8 @@ This directory is the first migration milestone for a native C implementation of
 - Deterministic Building ticks with explicit item/liquid/power transfer, recipe progress, damage/heal, network bookkeeping, state hashing and regression fixtures.
 - An MSAV custom-chunk bridge named `mindustry-native-buildings`; unknown Java entity/config/custom chunks remain owned by the save loader and are not overwritten.
 - Building rule validation, typed config helpers, event journals, transactional snapshots/deltas, inspection reports and deterministic logistics path queries.
-- A small content table seeded from the current `Items.java` values.
+- A generated C-only content registry with the Java declaration/registration order for 22 items, 427 blocks, 11 liquids, 23 status effects, 63 unit fields, 6 bullets, 6 weather types, 7 planets, 46 sector presets and 7 built-in teams. It exposes stable per-type IDs, Java field/class names, legacy item mappings, canonical-name lookup, registry hashing and a remapping manifest.
+- Registry entries mark identity/order with `MC_REGISTRY_FLAG_CANONICAL` and explicitly mark the current gameplay metadata model with `MC_REGISTRY_FLAG_METADATA_PARTIAL`; heuristic block/unit defaults are not claimed as 1:1 behavior.
 - A Java-compatible uncompressed map-section codec for plain tiles and RLE.
 - Java-compatible MSAV headers, length-prefixed regions, string maps and modified UTF-8 helpers.
 - A dependency-free zlib/DEFLATE wrapper: stored-block writer plus stored/fixed/dynamic Huffman reader.

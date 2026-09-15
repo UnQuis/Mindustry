@@ -11,6 +11,8 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] 60 Hz fixed-step clock and deterministic state hash.
 - [x] Basic tile/block/entity/inventory primitives.
 - [x] Initial item values copied from `core/src/mindustry/content/Items.java`.
+- [x] C-only built-in content registry with stable per-type IDs, canonical Java names/order, legacy item IDs, validation/hash/manifest APIs and remapping metadata for all declared built-in content groups.
+- [!] Registry identity/order is canonical, but `MC_REGISTRY_FLAG_METADATA_PARTIAL` is set on entries: block/unit/bullet gameplay metadata still needs Java differential fixtures before it can claim 1:1 simulation parity.
 - [x] Headless executable and tests.
 - [x] Optional SDL2 frontend boundary.
 

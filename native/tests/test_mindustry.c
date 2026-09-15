@@ -11,6 +11,7 @@
 #include "mindustry_building_events.h"
 #include "mindustry_building_snapshot.h"
 #include "mindustry_building_inspection.h"
+#include "mindustry_content_registry.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -1244,6 +1245,102 @@ static void test_building_inspection_and_paths(void){
     mc_building_store_destroy(&store);
 }
 
+static void test_full_content_registry(void){
+    size_t total = 0;
+    const McContentEntry *entries = mc_content_registry_entries(&total);
+    assert(entries != NULL && total == MC_CONTENT_REGISTRY_TOTAL_COUNT);
+    assert(total == 618);
+    assert(mc_content_registry_count(MC_REGISTRY_ITEM) == 22);
+    assert(mc_content_registry_count(MC_REGISTRY_BLOCK) == 427);
+    assert(mc_content_registry_count(MC_REGISTRY_LIQUID) == 11);
+    assert(mc_content_registry_count(MC_REGISTRY_STATUS) == 23);
+    assert(mc_content_registry_count(MC_REGISTRY_UNIT) == 63);
+    assert(mc_content_registry_count(MC_REGISTRY_BULLET) == 6);
+    assert(mc_content_registry_count(MC_REGISTRY_WEATHER) == 6);
+    assert(mc_content_registry_count(MC_REGISTRY_PLANET) == 7);
+    assert(mc_content_registry_count(MC_REGISTRY_SECTOR) == 46);
+    assert(mc_content_registry_count(MC_REGISTRY_TEAM) == 7);
+    assert(mc_content_registry_count(MC_REGISTRY_TYPE_COUNT) == 0);
+
+    McContentRegistryValidation validation;
+    assert(mc_content_registry_validate(&validation) == MC_OK);
+    assert(validation.valid && validation.ordered);
+    assert(validation.entries == total && validation.types == MC_REGISTRY_TYPE_COUNT);
+    assert(validation.duplicate_ids == 0 && validation.duplicate_names == 0 && validation.missing_ids == 0);
+    assert(validation.legacy_mappings == MC_CONTENT_REGISTRY_ITEM_COUNT);
+    McContentRegistryValidation item_validation;
+    assert(mc_content_registry_validate_type(MC_REGISTRY_ITEM, &item_validation) == MC_OK);
+    assert(item_validation.valid && item_validation.types == 1 && item_validation.entries == 22);
+    assert(item_validation.legacy_mappings == 22);
+    assert(strcmp(mc_content_registry_type_name(MC_REGISTRY_BLOCK), "block") == 0);
+    assert(strcmp(mc_content_registry_type_name(MC_REGISTRY_UNIT), "unit") == 0);
+    assert(strcmp(mc_content_registry_type_name(MC_REGISTRY_TYPE_COUNT), "unknown") == 0);
+
+    const McContentEntry *copper = mc_content_registry_find(MC_REGISTRY_ITEM, "copper");
+    const McContentEntry *scrap = mc_content_registry_find(MC_REGISTRY_ITEM, "scrap");
+    const McContentEntry *core = mc_content_registry_find(MC_REGISTRY_BLOCK, "core-shard");
+    const McContentEntry *ore = mc_content_registry_find(MC_REGISTRY_BLOCK, "ore-copper");
+    const McContentEntry *oil = mc_content_registry_find(MC_REGISTRY_LIQUID, "oil");
+    const McContentEntry *ozone = mc_content_registry_find(MC_REGISTRY_LIQUID, "ozone");
+    const McContentEntry *dagger = mc_content_registry_find(MC_REGISTRY_UNIT, "dagger");
+    const McContentEntry *flare = mc_content_registry_find(MC_REGISTRY_UNIT, "flare");
+    const McContentEntry *ground_zero = mc_content_registry_find(MC_REGISTRY_SECTOR, "groundZero");
+    assert(copper != NULL && scrap != NULL && core != NULL && ore != NULL && oil != NULL && ozone != NULL);
+    assert(dagger != NULL && flare != NULL && ground_zero != NULL);
+    assert(copper->id == 0 && copper->legacy_id == MC_ITEM_COPPER);
+    assert(mc_content_registry_has_flag(copper, MC_REGISTRY_FLAG_LEGACY));
+    assert(scrap->legacy_id == MC_ITEM_SCRAP);
+    assert(core->id < MC_CONTENT_REGISTRY_BLOCK_COUNT && core->size == 3 && core->health == 1100);
+    assert(mc_content_registry_find_id(MC_REGISTRY_ITEM, copper->id) == copper);
+    assert(mc_content_registry_find_id(MC_REGISTRY_BLOCK, core->id) == core);
+    assert(mc_content_registry_find_id(MC_REGISTRY_ITEM, 65535) == NULL);
+    assert(mc_content_registry_legacy_id(MC_REGISTRY_ITEM, "phase-fabric") == MC_ITEM_PHASE_FABRIC);
+    assert(mc_content_registry_legacy_id(MC_REGISTRY_ITEM, "missing") == -1);
+    assert(mc_content_registry_find_legacy_id(MC_REGISTRY_ITEM, MC_ITEM_COPPER) == copper);
+    assert(mc_content_registry_find_legacy_id(MC_REGISTRY_ITEM, -1) == NULL);
+    assert(mc_content_registry_has_flag(ozone, MC_REGISTRY_FLAG_GAS));
+    assert(mc_content_registry_has_flag(oil, MC_REGISTRY_FLAG_LIQUID));
+    assert(mc_content_registry_has_flag(core, MC_REGISTRY_FLAG_STORAGE));
+    assert(mc_content_registry_has_flag(ore, MC_REGISTRY_FLAG_ENVIRONMENT));
+    assert(mc_content_registry_has_flag(dagger, MC_REGISTRY_FLAG_UNIT));
+    assert(!mc_content_registry_has_flag(copper, MC_REGISTRY_FLAG_HIDDEN));
+    assert(mc_content_registry_has_flag(core, MC_REGISTRY_FLAG_CANONICAL));
+    assert(mc_content_registry_has_flag(core, MC_REGISTRY_FLAG_METADATA_PARTIAL));
+    assert(mc_content_registry_name(MC_REGISTRY_SECTOR, ground_zero->id) != NULL);
+    assert(mc_content_registry_at(MC_REGISTRY_ITEM, 0) == copper);
+    assert(mc_content_registry_at(MC_REGISTRY_ITEM, 21)->legacy_id == MC_ITEM_DORMANT_CYST);
+    assert(mc_content_registry_at(MC_REGISTRY_BLOCK, 427) == NULL);
+
+    uint64_t first_hash = mc_content_registry_hash();
+    assert(first_hash != 0);
+    McContentRegistryView view = mc_content_registry_view();
+    assert(view.valid && view.version == MC_CONTENT_REGISTRY_VERSION && view.count == total);
+
+    McBuffer manifest;
+    mc_buffer_init(&manifest);
+    assert(mc_content_registry_write_manifest(&manifest) == MC_OK);
+    assert(manifest.size > total * 8);
+    McContentRegistryValidation manifest_validation;
+    assert(mc_content_registry_read_manifest(manifest.data, manifest.size, &manifest_validation) == MC_OK);
+    assert(manifest_validation.valid && manifest_validation.entries == total);
+    assert(mc_content_registry_hash() == first_hash);
+
+    uint8_t *truncated = malloc(manifest.size - 1);
+    assert(truncated != NULL);
+    memcpy(truncated, manifest.data, manifest.size - 1);
+    assert(mc_content_registry_read_manifest(truncated, manifest.size - 1, &manifest_validation) == MC_FORMAT_ERROR);
+    free(truncated);
+    uint8_t bad_magic[10] = {0};
+    assert(mc_content_registry_read_manifest(bad_magic, sizeof(bad_magic), &manifest_validation) == MC_FORMAT_ERROR);
+    uint8_t *tampered = malloc(manifest.size);
+    assert(tampered != NULL);
+    memcpy(tampered, manifest.data, manifest.size);
+    tampered[manifest.size - 1] ^= 1u;
+    assert(mc_content_registry_read_manifest(tampered, manifest.size, &manifest_validation) == MC_FORMAT_ERROR);
+    free(tampered);
+    mc_buffer_destroy(&manifest);
+}
+
 static void test_content_table(void){
     size_t count = 0;
     const McItemDefinition *items = mc_item_definitions(&count);
@@ -1283,6 +1380,7 @@ int main(void){
     test_gameplay_building_round_trip();
     test_block_placement();
     test_deterministic_steps();
+    test_full_content_registry();
     test_content_table();
     puts("native tests: ok");
     return 0;

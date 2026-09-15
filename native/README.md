@@ -7,6 +7,10 @@ This directory is the first migration milestone for a native C implementation of
 - A C17, dependency-free deterministic simulation kernel.
 - Explicit world/tile, item/inventory, entity, block and tick APIs.
 - An owned gameplay-state layer that loads MSAV state into the simulation, tracks runtime metadata, synchronizes mutations back to MSAV, and exposes world/entity/team operations.
+- A semantic native Building state layer: block/team/geometry/health, inventories, liquids, power, production, drills, turrets, conveyors, factories, cores, processors, config, links and resource networks.
+- Deterministic Building ticks with explicit item/liquid/power transfer, recipe progress, damage/heal, network bookkeeping, state hashing and regression fixtures.
+- An MSAV custom-chunk bridge named `mindustry-native-buildings`; unknown Java entity/config/custom chunks remain owned by the save loader and are not overwritten.
+- Building rule validation, typed config helpers, event journals, transactional snapshots/deltas, inspection reports and deterministic logistics path queries.
 - A small content table seeded from the current `Items.java` values.
 - A Java-compatible uncompressed map-section codec for plain tiles and RLE.
 - Java-compatible MSAV headers, length-prefixed regions, string maps and modified UTF-8 helpers.

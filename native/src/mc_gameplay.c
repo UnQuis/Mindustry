@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MC_NATIVE_BUILDING_CHUNK "mindustry-native-buildings"
+
 static char *duplicate_string(const char *value){
     if(value == NULL) return NULL;
     size_t length = strlen(value);
@@ -12,6 +14,71 @@ static char *duplicate_string(const char *value){
     if(copy == NULL) return NULL;
     memcpy(copy, value, length + 1);
     return copy;
+}
+
+static McCustomChunk *find_native_building_chunk(McSaveFile *save){
+    if(save == NULL) return NULL;
+    for(size_t i = 0; i < save->custom_data.count; i++){
+        if(save->custom_data.chunks[i].name != NULL && strcmp(save->custom_data.chunks[i].name, MC_NATIVE_BUILDING_CHUNK) == 0){
+            return &save->custom_data.chunks[i];
+        }
+    }
+    return NULL;
+}
+
+static McStatus read_native_buildings(McGameplay *gameplay){
+    McCustomChunk *chunk = find_native_building_chunk(&gameplay->save);
+    if(chunk == NULL){
+        return mc_building_store_clear(&gameplay->buildings);
+    }
+    return mc_building_store_read(chunk->data, chunk->size, &gameplay->buildings);
+}
+
+static McStatus write_native_buildings(McGameplay *gameplay){
+    McBuffer payload;
+    mc_buffer_init(&payload);
+    McStatus status = mc_building_store_write(&gameplay->buildings, &payload);
+    if(status != MC_OK){
+        mc_buffer_destroy(&payload);
+        return status;
+    }
+    McCustomChunk *chunk = find_native_building_chunk(&gameplay->save);
+    if(chunk == NULL){
+        size_t old_count = gameplay->save.custom_data.count;
+        if(old_count == SIZE_MAX || old_count + 1 > SIZE_MAX / sizeof(*gameplay->save.custom_data.chunks)){
+            mc_buffer_destroy(&payload);
+            return MC_CAPACITY_EXCEEDED;
+        }
+        McCustomChunk *chunks = realloc(gameplay->save.custom_data.chunks,
+            (old_count + 1) * sizeof(*chunks));
+        if(chunks == NULL){
+            mc_buffer_destroy(&payload);
+            return MC_OUT_OF_MEMORY;
+        }
+        gameplay->save.custom_data.chunks = chunks;
+        chunk = &chunks[old_count];
+        *chunk = (McCustomChunk){0};
+        chunk->name = duplicate_string(MC_NATIVE_BUILDING_CHUNK);
+        if(chunk->name == NULL){
+            mc_buffer_destroy(&payload);
+            return MC_OUT_OF_MEMORY;
+        }
+        gameplay->save.custom_data.count++;
+    }
+    uint8_t *data = payload.data;
+    size_t size = payload.size;
+    free(chunk->data);
+    chunk->data = data;
+    chunk->size = size;
+    payload.data = NULL;
+    payload.size = 0;
+    payload.capacity = 0;
+    payload.position = 0;
+    free(gameplay->save.custom.data);
+    gameplay->save.custom.data = NULL;
+    gameplay->save.custom.size = 0;
+    mc_buffer_destroy(&payload);
+    return MC_OK;
 }
 
 static const char *tag_value(const McSaveTags *tags, const char *key){
@@ -268,6 +335,18 @@ static uint16_t block_size_or_one(uint16_t block){
     return size == 0 ? 1 : size;
 }
 
+static void clear_world_building_area(McGameplay *gameplay, uint16_t x, uint16_t y, uint16_t size){
+    if(gameplay == NULL) return;
+    for(uint16_t dy = 0; dy < size; dy++){
+        for(uint16_t dx = 0; dx < size; dx++){
+            McTile *tile = mc_world_tile(&gameplay->simulation.world, (uint16_t)(x + dx), (uint16_t)(y + dy));
+            if(tile != NULL) tile->block = MC_BLOCK_AIR;
+            McTileData *data = mc_world_tile_data(&gameplay->simulation.world, (uint16_t)(x + dx), (uint16_t)(y + dy));
+            if(data != NULL) *data = (McTileData){0};
+        }
+    }
+}
+
 static McEntity *find_building_at(McGameplay *gameplay, uint16_t x, uint16_t y){
     for(size_t i = 0; i < MC_MAX_ENTITIES; i++){
         McEntity *entity = &gameplay->simulation.entities[i];
@@ -291,12 +370,17 @@ static McStatus restore_map_buildings(McGameplay *gameplay){
         if((tile->flags & 1u) == 0 || !tile->entity_center) continue;
         uint16_t x = (uint16_t)(i % gameplay->save.map.width);
         uint16_t y = (uint16_t)(i / gameplay->save.map.width);
-        McEntity *entity = mc_simulation_spawn(&gameplay->simulation, MC_ENTITY_BUILDING, team,
-            ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE);
+        const McBuildingState *saved_state = mc_building_store_find_tile_const(&gameplay->buildings, x, y);
+        McEntity *entity = saved_state == NULL
+            ? mc_simulation_spawn(&gameplay->simulation, MC_ENTITY_BUILDING, team,
+                ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE)
+            : mc_simulation_spawn_with_id(&gameplay->simulation, MC_ENTITY_BUILDING, saved_state->team,
+                saved_state->entity_id, ((float)x + 0.5f) * MC_TILE_SIZE, ((float)y + 0.5f) * MC_TILE_SIZE);
         if(entity == NULL) return MC_CAPACITY_EXCEEDED;
         entity->tile_x = x;
         entity->tile_y = y;
-        entity->block = (McBlockId)tile->tile.block;
+        entity->block = saved_state == NULL ? (McBlockId)tile->tile.block : saved_state->block;
+        entity->team = saved_state == NULL ? team : saved_state->team;
         uint16_t block_size = block_size_or_one(tile->tile.block);
         entity->position.x = ((float)x + (float)block_size * 0.5f) * MC_TILE_SIZE;
         entity->position.y = ((float)y + (float)block_size * 0.5f) * MC_TILE_SIZE;
@@ -304,8 +388,11 @@ static McStatus restore_map_buildings(McGameplay *gameplay){
         entity->max_health = entity->health;
         McStatus status = mc_simulation_attach_entity_data(entity, 0, tile->entity_data, tile->entity_size);
         if(status != MC_OK) return status;
+        if(saved_state == NULL && mc_building_store_add(&gameplay->buildings, entity->id, entity->block, entity->team, x, y) == NULL){
+            return MC_CAPACITY_EXCEEDED;
+        }
     }
-    return MC_OK;
+    return mc_building_store_rebuild_networks(&gameplay->buildings);
 }
 
 static McStatus restore_world_entities(McGameplay *gameplay){
@@ -322,6 +409,7 @@ static McStatus restore_world_entities(McGameplay *gameplay){
 }
 
 static void clear_runtime_save(McGameplay *gameplay){
+    mc_building_store_clear(&gameplay->buildings);
     mc_save_file_destroy(&gameplay->save);
     runtime_destroy(&gameplay->runtime);
     gameplay->counters = (McGameplayCounters){0};
@@ -332,6 +420,7 @@ McStatus mc_gameplay_init(McGameplay *gameplay, uint16_t width, uint16_t height,
     *gameplay = (McGameplay){0};
     McStatus status = mc_simulation_init(&gameplay->simulation, width, height, seed);
     if(status != MC_OK) return status;
+    mc_building_store_init(&gameplay->buildings);
     runtime_reset(&gameplay->runtime);
     if(gameplay->runtime.rules_json == NULL || gameplay->runtime.stats_json == NULL ||
        gameplay->runtime.locales_json == NULL || gameplay->runtime.mods_json == NULL ||
@@ -345,6 +434,12 @@ McStatus mc_gameplay_init(McGameplay *gameplay, uint16_t width, uint16_t height,
         mc_gameplay_destroy(gameplay);
         return MC_OUT_OF_MEMORY;
     }
+    gameplay->save.version = 13;
+    status = mc_map_section_init(&gameplay->save.map, width, height);
+    if(status != MC_OK){
+        mc_gameplay_destroy(gameplay);
+        return status;
+    }
     gameplay_team_reset(gameplay);
     gameplay->initialized = true;
     return MC_OK;
@@ -353,6 +448,7 @@ McStatus mc_gameplay_init(McGameplay *gameplay, uint16_t width, uint16_t height,
 void mc_gameplay_destroy(McGameplay *gameplay){
     if(gameplay == NULL) return;
     mc_save_file_destroy(&gameplay->save);
+    mc_building_store_destroy(&gameplay->buildings);
     mc_simulation_destroy(&gameplay->simulation);
     runtime_destroy(&gameplay->runtime);
     *gameplay = (McGameplay){0};
@@ -372,7 +468,9 @@ McStatus mc_gameplay_adopt_save(McGameplay *gameplay, McSaveFile *save,
     clear_runtime_save(gameplay);
     gameplay->save = incoming;
 
-    McStatus status = runtime_read_metadata(gameplay);
+    McStatus status = read_native_buildings(gameplay);
+    if(status != MC_OK) return status;
+    status = runtime_read_metadata(gameplay);
     if(status != MC_OK) return status;
     if(remap != NULL){
         status = mc_map_section_apply_content_remap(&gameplay->save.map, remap, unknown_to_air);
@@ -506,6 +604,8 @@ McStatus mc_gameplay_write(McGameplay *gameplay, McBuffer *compressed){
     if(status != MC_OK) return status;
     status = mc_gameplay_save_metadata(gameplay);
     if(status != MC_OK) return status;
+    status = write_native_buildings(gameplay);
+    if(status != MC_OK) return status;
     return mc_save_file_write(&gameplay->save, compressed);
 }
 
@@ -514,6 +614,10 @@ McStatus mc_gameplay_step(McGameplay *gameplay){
     uint32_t old_wave = gameplay->simulation.wave;
     McStatus status = mc_simulation_step(&gameplay->simulation);
     if(status != MC_OK) return status;
+    if(!gameplay->simulation.paused){
+        status = mc_building_store_step(&gameplay->buildings, gameplay->simulation.tick);
+        if(status != MC_OK) return status;
+    }
     gameplay->counters.steps++;
     if(gameplay->simulation.wave != old_wave){
         gameplay->counters.waves_started += (uint64_t)(gameplay->simulation.wave - old_wave);
@@ -560,6 +664,23 @@ const McGameplayTeamState *mc_gameplay_team(const McGameplay *gameplay, McTeam t
     return &gameplay->teams[team];
 }
 
+McBuildingStore *mc_gameplay_buildings(McGameplay *gameplay){
+    return gameplay == NULL || !gameplay->initialized ? NULL : &gameplay->buildings;
+}
+
+const McBuildingStore *mc_gameplay_buildings_const(const McGameplay *gameplay){
+    return gameplay == NULL || !gameplay->initialized ? NULL : &gameplay->buildings;
+}
+
+McBuildingState *mc_gameplay_find_building(McGameplay *gameplay, McEntityId entity_id){
+    return gameplay == NULL || !gameplay->initialized ? NULL : mc_building_store_find(&gameplay->buildings, entity_id);
+}
+
+McStatus mc_gameplay_step_buildings(McGameplay *gameplay, uint64_t tick){
+    if(gameplay == NULL || !gameplay->initialized) return MC_INVALID_ARGUMENT;
+    return mc_building_store_step(&gameplay->buildings, tick);
+}
+
 McTile *mc_gameplay_tile(McGameplay *gameplay, uint16_t x, uint16_t y){
     return gameplay == NULL ? NULL : mc_world_tile(&gameplay->simulation.world, x, y);
 }
@@ -580,6 +701,14 @@ McStatus mc_gameplay_place_block(McGameplay *gameplay, McBlockId block, McTeam t
     if(gameplay == NULL || !gameplay->initialized) return MC_INVALID_ARGUMENT;
     McStatus status = mc_simulation_place_block(&gameplay->simulation, block, team, x, y);
     if(status != MC_OK) return status;
+    McEntity *placed = find_building_at(gameplay, x, y);
+    if(placed == NULL || mc_building_store_add(&gameplay->buildings, placed->id, block, team, x, y) == NULL){
+        if(placed != NULL){
+            clear_world_building_area(gameplay, x, y, block_size_or_one((uint16_t)block));
+            mc_simulation_destroy_entity(&gameplay->simulation, placed->id);
+        }
+        return MC_OUT_OF_MEMORY;
+    }
     gameplay->counters.blocks_placed++;
     gameplay->counters.entities_spawned++;
     gameplay->teams[team].active = true;
@@ -616,6 +745,7 @@ McStatus mc_gameplay_remove_block(McGameplay *gameplay, uint16_t x, uint16_t y){
         }
     }
     if(id != MC_ENTITY_NONE){
+        mc_building_store_remove(&gameplay->buildings, id);
         mc_simulation_destroy_entity(&gameplay->simulation, id);
         if(team < MC_TEAM_COUNT && gameplay->teams[team].building_count > 0) gameplay->teams[team].building_count--;
     }
@@ -655,6 +785,7 @@ McStatus mc_gameplay_destroy_entity(McGameplay *gameplay, McEntityId id){
     if(entity->kind == MC_ENTITY_BUILDING && team < MC_TEAM_COUNT && gameplay->teams[team].building_count > 0){
         gameplay->teams[team].building_count--;
     }
+    if(entity->kind == MC_ENTITY_BUILDING) mc_building_store_remove(&gameplay->buildings, id);
     mc_simulation_destroy_entity(&gameplay->simulation, id);
     gameplay->counters.entities_destroyed++;
     return MC_OK;
@@ -670,8 +801,22 @@ McStatus mc_gameplay_damage_entity(McGameplay *gameplay, McEntityId id, float am
     }
     McEntity *entity = mc_simulation_find(&gameplay->simulation, id);
     if(entity == NULL) return MC_NOT_FOUND;
-    entity->health -= amount;
     gameplay->counters.damage_dealt += (uint64_t)amount;
+    if(entity->kind == MC_ENTITY_BUILDING){
+        McStatus status = mc_building_store_damage(&gameplay->buildings, id, amount);
+        if(status != MC_OK) return status;
+        const McBuildingState *building = mc_building_store_find_const(&gameplay->buildings, id);
+        entity->health = building == NULL ? entity->health - amount : building->health;
+        if(building != NULL && building->dead){
+            uint16_t tile_x = entity->tile_x;
+            uint16_t tile_y = entity->tile_y;
+            McStatus removal = mc_gameplay_remove_block(gameplay, tile_x, tile_y);
+            if(removal == MC_OK) gameplay->counters.entities_destroyed++;
+            return removal;
+        }
+        return MC_OK;
+    }
+    entity->health -= amount;
     if(entity->health <= 0.0f){
         entity->health = 0.0f;
         return mc_gameplay_destroy_entity(gameplay, id);
@@ -683,8 +828,18 @@ McStatus mc_gameplay_heal_entity(McGameplay *gameplay, McEntityId id, float amou
     if(gameplay == NULL || !gameplay->initialized || amount < 0.0f) return MC_INVALID_ARGUMENT;
     McEntity *entity = mc_simulation_find(&gameplay->simulation, id);
     if(entity == NULL) return MC_NOT_FOUND;
-    entity->health += amount;
-    if(entity->health > entity->max_health) entity->health = entity->max_health;
+    if(entity->kind == MC_ENTITY_BUILDING){
+        McStatus status = mc_building_store_heal(&gameplay->buildings, id, amount);
+        if(status != MC_OK) return status;
+        const McBuildingState *building = mc_building_store_find_const(&gameplay->buildings, id);
+        if(building != NULL){
+            entity->health = building->health;
+            entity->max_health = building->max_health;
+        }
+    }else{
+        entity->health += amount;
+        if(entity->health > entity->max_health) entity->health = entity->max_health;
+    }
     gameplay->counters.damage_received += (uint64_t)amount;
     return MC_OK;
 }

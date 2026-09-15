@@ -1,6 +1,6 @@
 # C port status
 
-Date of this milestone: 2026-09-14.
+Date of this milestone: 2026-09-15.
 
 The source repository currently has 871 Java sources under `core/src`, uses Arc as an external engine, and contains desktop, Android, iOS and server modules. The target is a full C implementation with current behavior, assets, persistence, networking and mod compatibility. This document prevents a partial port from being mistaken for that target.
 
@@ -29,6 +29,17 @@ The source repository currently has 871 Java sources under `core/src`, uses Arc 
 - [x] Version-1 `msch` codec for block dictionary, tags, positions, rotations and raw TypeIO configs.
 - [x] Pure-C PNG RGB/RGBA codec with CRC validation and all five row filters.
 - [x] Gameplay-state bridge: load MSAV metadata, map tile data, building records and raw world entities into native state; synchronize map/entity mutations and runtime metadata back into stateful MSAV saves.
+
+## Milestone 3 — semantic Building state
+
+- [x] Public C Building model for common block fields, inventories, liquids, power, production, drills, turrets, conveyors, factories, cores, processors and opaque config.
+- [x] Owning store with entity/tile lookup, placement/removal, links, deterministic resource transfer and separate power/liquid network bookkeeping.
+- [x] Fixed-tick Building update: production recipes, drill output, turret reload, conveyor movement, processor execution, heat, efficiency and power accounting.
+- [x] MSAV-compatible native custom payload (`mindustry-native-buildings`) with fixed-width codec, round-trip tests and preservation of unknown custom chunks.
+- [x] Rule validation/normalization, typed config access, inspection/path queries, event journal and transactional snapshot/delta helpers.
+- [x] Regression coverage for semantic mutation, malformed payloads, deterministic ticks, network routing, gameplay integration and MSAV round trips.
+
+The Building model covers the native block families currently represented in the compact C content table. Complete Java parity still requires expanding the content registry and differential fixtures for every upstream block class.
 
 ## Not ported yet
 

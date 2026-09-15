@@ -2,6 +2,7 @@
 #define MINDUSTRY_NATIVE_GAMEPLAY_H
 
 #include "mindustry_save_loader.h"
+#include "mindustry_building.h"
 
 #ifdef __cplusplus
 #error "The native Mindustry port is C, not C++."
@@ -48,6 +49,7 @@ typedef struct McGameplayTeamState{
 
 typedef struct McGameplay{
     McSimulation simulation;
+    McBuildingStore buildings;
     McSaveFile save;
     McGameplayRuntime runtime;
     McGameplayCounters counters;
@@ -74,6 +76,10 @@ MC_API McStatus mc_gameplay_set_player_team(McGameplay *gameplay, int32_t team);
 MC_API const McGameplayRuntime *mc_gameplay_runtime(const McGameplay *gameplay);
 MC_API const McGameplayCounters *mc_gameplay_counters(const McGameplay *gameplay);
 MC_API const McGameplayTeamState *mc_gameplay_team(const McGameplay *gameplay, McTeam team);
+MC_API McBuildingStore *mc_gameplay_buildings(McGameplay *gameplay);
+MC_API const McBuildingStore *mc_gameplay_buildings_const(const McGameplay *gameplay);
+MC_API McBuildingState *mc_gameplay_find_building(McGameplay *gameplay, McEntityId entity_id);
+MC_API McStatus mc_gameplay_step_buildings(McGameplay *gameplay, uint64_t tick);
 
 /* World and entity operations used by the native gameplay layer. */
 MC_API McTile *mc_gameplay_tile(McGameplay *gameplay, uint16_t x, uint16_t y);

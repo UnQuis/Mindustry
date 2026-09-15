@@ -1,9 +1,9 @@
 CC ?= cc
 CFLAGS ?= -std=c17 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 CPPFLAGS ?= -Iinclude
-LDFLAGS ?=
+LDFLAGS ?= -lm
 
-CORE_SOURCES := src/mc_content.c src/mc_world.c src/mc_format.c src/mc_save.c src/mc_save_map.c src/mc_deflate.c src/mc_typeio.c src/mc_map.c src/mc_patches.c src/mc_entities.c src/mc_markers.c src/mc_custom.c src/mc_save_loader.c src/mc_schematic.c src/mc_png.c src/mc_simulation.c src/mc_gameplay.c
+CORE_SOURCES := src/mc_content.c src/mc_world.c src/mc_format.c src/mc_save.c src/mc_save_map.c src/mc_deflate.c src/mc_typeio.c src/mc_map.c src/mc_patches.c src/mc_entities.c src/mc_markers.c src/mc_custom.c src/mc_save_loader.c src/mc_schematic.c src/mc_png.c src/mc_simulation.c src/mc_gameplay.c src/mc_building.c src/mc_building_io.c src/mc_building_tick.c src/mc_building_rules.c src/mc_building_events.c src/mc_building_snapshot.c src/mc_building_inspection.c
 CORE_OBJECTS := $(CORE_SOURCES:src/%.c=build/%.o)
 
 .PHONY: all test run sdl clean
@@ -17,10 +17,10 @@ run: build/mindustry-c
 	build/mindustry-c
 
 build/mindustry-c: $(CORE_OBJECTS) build/main.o | build
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 build/test_mindustry: $(CORE_OBJECTS) build/test_mindustry.o | build
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 build/%.o: src/%.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@

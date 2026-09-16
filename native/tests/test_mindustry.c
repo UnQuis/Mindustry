@@ -1308,6 +1308,17 @@ static void test_full_content_registry(void){
     assert(!mc_content_registry_has_flag(copper, MC_REGISTRY_FLAG_HIDDEN));
     assert(mc_content_registry_has_flag(core, MC_REGISTRY_FLAG_CANONICAL));
     assert(mc_content_registry_has_flag(core, MC_REGISTRY_FLAG_METADATA_PARTIAL));
+
+    char *saved_items[] = {"copper", "phase-fabric", "legacy-phase-fabric"};
+    McContentGroup saved_item_group = {MC_CONTENT_ITEM, saved_items, 3};
+    McContentHeader saved_header = {&saved_item_group, 1};
+    McContentRemap builtin_remap = {0};
+    assert(mc_content_remap_build_builtin(&saved_header, &builtin_remap) == MC_OK);
+    assert(mc_content_remap_find(&builtin_remap, MC_CONTENT_ITEM, 0) == copper->id);
+    assert(mc_content_remap_find(&builtin_remap, MC_CONTENT_ITEM, 1) == mc_content_registry_find(MC_REGISTRY_ITEM, "phase-fabric")->id);
+    assert(mc_content_remap_find(&builtin_remap, MC_CONTENT_ITEM, 2) == -1);
+    mc_content_remap_destroy(&builtin_remap);
+
     assert(mc_content_registry_name(MC_REGISTRY_SECTOR, ground_zero->id) != NULL);
     assert(mc_content_registry_at(MC_REGISTRY_ITEM, 0) == copper);
     assert(mc_content_registry_at(MC_REGISTRY_ITEM, 21)->legacy_id == MC_ITEM_DORMANT_CYST);

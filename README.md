@@ -5,6 +5,10 @@
 
 The automation tower defense RTS, written in Java.
 
+## Native C port
+
+A staged native C migration lives in [`native/`](native/). Its first milestone is a dependency-free deterministic simulation kernel, headless tests, and an optional SDL2 desktop shell. The Java/Arc implementation remains the reference while subsystems are ported and checked for 1:1 behavior; see [`native/PORT_STATUS.md`](native/PORT_STATUS.md) for the current boundary and roadmap.
+
 _[Trello Board](https://trello.com/b/aE2tcUwF/mindustry-40-plans)_  
 _[Wiki](https://mindustrygame.github.io/wiki)_  
 _[Javadoc](https://mindustrygame.github.io/docs/)_ 

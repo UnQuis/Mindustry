@@ -1453,6 +1453,12 @@ static void test_java_building_codec(void){
     test_java_building_codec_roundtrip(&record);
     mc_java_building_record_destroy(&record);
 
+    record = test_java_record("armoredConveyor", 1);
+    record.extension.data.conveyor.count = 1;
+    record.extension.data.conveyor.items[0] = (McJavaConveyorItem){4, 7, -3};
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
     record = test_java_record("junction", 1);
     for(size_t i = 0; i < 4; i++){
         record.extension.data.directional_buffer.buffer.sides[i].index = (uint8_t)i;

@@ -1395,6 +1395,46 @@ static McJavaBuildingRecord test_java_record(const char *field, uint8_t revision
 static void test_java_building_codec(void){
     McJavaBuildingRecord record;
 
+    /* Legacy subtype revisions must not consume fields introduced later. */
+    record = test_java_record("duo", 0);
+    record.extension.data.turret.reload = 17.0f;
+    record.extension.data.turret.rotation = 135.0f;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("scatter", 1);
+    record.extension.data.turret.reload = 4.0f;
+    record.extension.data.turret.rotation = 45.0f;
+    record.extension.data.turret.ammo_count = 1;
+    record.extension.data.turret.ammo[0].item_id = 4;
+    record.extension.data.turret.ammo[0].amount = 20;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("sorter", 1);
+    record.extension.data.item_filter.sort_item = 4;
+    for(size_t i = 0; i < 4; i++){
+        record.extension.data.directional_buffer.buffer.sides[i].index = 0;
+        record.extension.data.directional_buffer.buffer.sides[i].encoded_capacity = 0;
+    }
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("unloader", 0);
+    record.extension.data.item_filter.sort_item = 4;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("duct", 0);
+    record.extension.data.item_filter.rec_dir = 3;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("ductRouter", 0);
+    record.extension.data.item_filter.sort_item = 6;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
     record = test_java_record("conveyor", 1);
     record.extension.data.conveyor.count = 2;
     record.extension.data.conveyor.items[0] = (McJavaConveyorItem){0, -4, 12};

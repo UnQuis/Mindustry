@@ -268,6 +268,8 @@ typedef struct McJavaBuildingExtension{
             McJavaPayloadPrefix payload;
         } payload_only;
         struct{
+            float reload;
+            float rotation;
             uint16_t payload_count;
             McJavaPayloadEntry payloads[MC_JAVA_BUILDING_MAX_PAYLOADS];
         } payload_turret;

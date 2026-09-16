@@ -84,6 +84,19 @@ static McStatus read_count_u8(McBuffer *in, size_t maximum, size_t *count){
     return MC_OK;
 }
 
+static McStatus read_count_signed_byte(McBuffer *in, size_t maximum, size_t *count){
+    uint8_t encoded = 0;
+    if(mc_buffer_read_u8(in, &encoded) != MC_OK) return MC_FORMAT_ERROR;
+    int8_t signed_value = (int8_t)encoded;
+    if(signed_value < 0){
+        *count = 0;
+        return MC_OK;
+    }
+    if((size_t)signed_value > maximum) return MC_FORMAT_ERROR;
+    *count = (size_t)signed_value;
+    return MC_OK;
+}
+
 static McStatus read_count_i32(McBuffer *in, size_t maximum, size_t *count){
     int32_t encoded = 0;
     if(read_i32(in, &encoded) != MC_OK || encoded < 0 || (uint32_t)encoded > maximum) return MC_FORMAT_ERROR;
@@ -124,7 +137,7 @@ McJavaBuildingVariant mc_java_building_variant_for_block(uint16_t block_id){
     const McContentEntry *entry = block_entry(block_id);
     if(entry == NULL) return MC_JAVA_BUILDING_VARIANT_NONE;
 
-    if(class_is(entry, "Conveyor")) return MC_JAVA_BUILDING_VARIANT_CONVEYOR;
+    if(class_is(entry, "Conveyor") || class_is(entry, "ArmoredConveyor")) return MC_JAVA_BUILDING_VARIANT_CONVEYOR;
     if(class_is(entry, "BufferedItemBridge")) return MC_JAVA_BUILDING_VARIANT_BUFFERED_ITEM_BRIDGE;
     if(class_is(entry, "Junction")) return MC_JAVA_BUILDING_VARIANT_ITEM_BUFFER;
     if(class_is(entry, "ItemBridge") || class_is(entry, "LiquidBridge")) return MC_JAVA_BUILDING_VARIANT_ITEM_BRIDGE;
@@ -219,8 +232,29 @@ McJavaBuildingFamily mc_java_building_family_for_block(uint16_t block_id){
         case MC_JAVA_BUILDING_VARIANT_BUILD_TURRET:
         case MC_JAVA_BUILDING_VARIANT_PAYLOAD_TURRET:
             return MC_JAVA_BUILDING_TURRET;
-        default: return MC_JAVA_BUILDING_OTHER;
+        default:
+            break;
     }
+
+    /* Several distribution and production blocks intentionally inherit the
+       base Building implementation and therefore have no subtype bytes. They
+       still own the item/liquid/power modules, which matters for old entity
+       revisions whose module mask was implicit. */
+    {
+        static const char *const item_transport_base[] = {
+            "Router", "OverflowGate", "OverflowDuct", "DirectionBridge", "DirectionLiquidBridge", "DuctBridge"
+        };
+        if(class_in(block_entry(block_id), item_transport_base,
+                   sizeof(item_transport_base) / sizeof(item_transport_base[0])))
+            return MC_JAVA_BUILDING_ITEM_TRANSPORT;
+    }
+    {
+        static const char *const production_base[] = {"WallCrafter", "Incinerator", "ItemIncinerator"};
+        if(class_in(block_entry(block_id), production_base,
+                   sizeof(production_base) / sizeof(production_base[0])))
+            return MC_JAVA_BUILDING_CRAFTER;
+    }
+    return MC_JAVA_BUILDING_OTHER;
 }
 
 const char *mc_java_building_family_name(McJavaBuildingFamily family){
@@ -628,7 +662,7 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             status = read_i32(in, &ext->data.item_bridge.link);
             if(status == MC_OK) status = read_f32(in, &ext->data.item_bridge.warmup);
             size_t count = 0;
-            if(status == MC_OK) status = read_count_u8(in, MC_JAVA_BUILDING_MAX_INCOMING, &count);
+            if(status == MC_OK) status = read_count_signed_byte(in, MC_JAVA_BUILDING_MAX_INCOMING, &count);
             ext->data.item_bridge.incoming_count = (uint32_t)count;
             for(size_t i = 0; status == MC_OK && i < count; i++) status = read_i32(in, &ext->data.item_bridge.incoming[i]);
             if(status == MC_OK && record->revision >= 1) status = read_bool8(in, &ext->data.item_bridge.moved);
@@ -638,7 +672,7 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             status = read_i32(in, &ext->data.buffered_item_bridge.link);
             if(status == MC_OK) status = read_f32(in, &ext->data.buffered_item_bridge.warmup);
             size_t count = 0;
-            if(status == MC_OK) status = read_count_u8(in, MC_JAVA_BUILDING_MAX_INCOMING, &count);
+            if(status == MC_OK) status = read_count_signed_byte(in, MC_JAVA_BUILDING_MAX_INCOMING, &count);
             ext->data.buffered_item_bridge.incoming_count = (uint32_t)count;
             for(size_t i = 0; status == MC_OK && i < count; i++) status = read_i32(in, &ext->data.buffered_item_bridge.incoming[i]);
             if(status == MC_OK && record->revision >= 1) status = read_bool8(in, &ext->data.buffered_item_bridge.moved);
@@ -656,7 +690,8 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             }
             int32_t mapped_item = remap_content_id(remap, MC_CONTENT_ITEM, saved_item);
             ext->data.item_filter.sort_item = mapped_item >= INT16_MIN && mapped_item <= INT16_MAX ? (int16_t)mapped_item : -1;
-            if(status == MC_OK && record->revision == 1) status = read_directional_buffer(in, &ext->data.directional_buffer.buffer, false);
+            if(status == MC_OK && record->revision == 1 && !class_is(block_entry(record->block_id), "Unloader"))
+                status = read_directional_buffer(in, &ext->data.directional_buffer.buffer, false);
             break;
         }
         case MC_JAVA_BUILDING_VARIANT_DIRECTIONAL_UNLOADER:{
@@ -718,7 +753,10 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
         case MC_JAVA_BUILDING_VARIANT_CRAFTER:
             status = read_f32(in, &ext->data.crafter.progress);
             if(status == MC_OK) status = read_f32(in, &ext->data.crafter.warmup);
-            if(status == MC_OK && strcmp(block_entry(record->block_id)->name, "cultivator") == 0) status = (McStatus)read_f32(in, &ext->data.crafter.warmup);
+            if(status == MC_OK && strcmp(block_entry(record->block_id)->name, "cultivator") == 0){
+                float ignored_legacy_warmup = 0.0f;
+                status = read_f32(in, &ignored_legacy_warmup);
+            }
             break;
         case MC_JAVA_BUILDING_VARIANT_SEPARATOR:
             status = read_f32(in, &ext->data.crafter.progress);
@@ -857,18 +895,30 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             if(status == MC_OK && payload_is_opaque(&ext->data.payload_only.payload)) in->position = in->size;
             break;
         case MC_JAVA_BUILDING_VARIANT_TURRET:
-            status = read_f32(in, &ext->data.turret.reload);
-            if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = read_f32(in, &ext->data.turret.reload);
+                if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            }
             break;
         case MC_JAVA_BUILDING_VARIANT_ITEM_TURRET:{
-            status = read_f32(in, &ext->data.turret.reload);
-            if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = read_f32(in, &ext->data.turret.reload);
+                if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            }
             size_t count = 0;
             if(status == MC_OK) status = read_count_u8(in, MC_JAVA_BUILDING_MAX_AMMO, &count);
             ext->data.turret.ammo_count = (uint8_t)count;
             for(size_t i = 0; status == MC_OK && i < count; i++){
-                int16_t saved_item = 0;
-                status = read_i16(in, &saved_item);
+                int32_t saved_item = -1;
+                if(record->revision < 2){
+                    uint8_t old_item = 0;
+                    status = mc_buffer_read_u8(in, &old_item);
+                    saved_item = (int32_t)old_item;
+                }else{
+                    int16_t item = 0;
+                    status = read_i16(in, &item);
+                    saved_item = (int32_t)item;
+                }
                 int32_t mapped_item = remap_content_id(remap, MC_CONTENT_ITEM, saved_item);
                 ext->data.turret.ammo[i].item_id = mapped_item >= INT16_MIN && mapped_item <= INT16_MAX ? (int16_t)mapped_item : -1;
                 if(status == MC_OK) status = read_i16(in, &ext->data.turret.ammo[i].amount);
@@ -876,8 +926,10 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             break;
         }
         case MC_JAVA_BUILDING_VARIANT_CONTINUOUS_TURRET:
-            status = read_f32(in, &ext->data.turret.reload);
-            if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = read_f32(in, &ext->data.turret.reload);
+                if(status == MC_OK) status = read_f32(in, &ext->data.turret.rotation);
+            }
             if(status == MC_OK && record->revision >= 3) status = read_f32(in, &ext->data.turret.last_length);
             break;
         case MC_JAVA_BUILDING_VARIANT_ROTATING_TURRET:
@@ -893,7 +945,11 @@ static McStatus read_extension(McBuffer *in, McJavaBuildingRecord *record, const
             break;
         }
         case MC_JAVA_BUILDING_VARIANT_PAYLOAD_TURRET:
-            status = read_payload_seq(in, remap, ext->data.payload_turret.payloads, &ext->data.payload_turret.payload_count);
+            if(record->revision >= 1){
+                status = read_f32(in, &ext->data.payload_turret.reload);
+                if(status == MC_OK) status = read_f32(in, &ext->data.payload_turret.rotation);
+            }
+            if(status == MC_OK) status = read_payload_seq(in, remap, ext->data.payload_turret.payloads, &ext->data.payload_turret.payload_count);
             break;
         default: status = MC_FORMAT_ERROR; break;
     }
@@ -937,7 +993,7 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
         case MC_JAVA_BUILDING_VARIANT_ITEM_BRIDGE:
             status = write_i32(out, ext->data.item_bridge.link);
             if(status == MC_OK) status = write_f32(out, ext->data.item_bridge.warmup);
-            if(status == MC_OK && ext->data.item_bridge.incoming_count > MC_JAVA_BUILDING_MAX_INCOMING) return MC_CAPACITY_EXCEEDED;
+            if(status == MC_OK && ext->data.item_bridge.incoming_count > INT8_MAX) return MC_CAPACITY_EXCEEDED;
             if(status == MC_OK) status = mc_buffer_write_u8(out, (uint8_t)ext->data.item_bridge.incoming_count);
             for(size_t i = 0; status == MC_OK && i < ext->data.item_bridge.incoming_count; i++) status = write_i32(out, ext->data.item_bridge.incoming[i]);
             if(status == MC_OK) status = write_bool8(out, ext->data.item_bridge.moved);
@@ -945,21 +1001,27 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
         case MC_JAVA_BUILDING_VARIANT_BUFFERED_ITEM_BRIDGE:
             status = write_i32(out, ext->data.buffered_item_bridge.link);
             if(status == MC_OK) status = write_f32(out, ext->data.buffered_item_bridge.warmup);
-            if(status == MC_OK && ext->data.buffered_item_bridge.incoming_count > MC_JAVA_BUILDING_MAX_INCOMING) return MC_CAPACITY_EXCEEDED;
+            if(status == MC_OK && ext->data.buffered_item_bridge.incoming_count > INT8_MAX) return MC_CAPACITY_EXCEEDED;
             if(status == MC_OK) status = mc_buffer_write_u8(out, (uint8_t)ext->data.buffered_item_bridge.incoming_count);
             for(size_t i = 0; status == MC_OK && i < ext->data.buffered_item_bridge.incoming_count; i++) status = write_i32(out, ext->data.buffered_item_bridge.incoming[i]);
             if(status == MC_OK) status = write_bool8(out, ext->data.buffered_item_bridge.moved);
             if(status == MC_OK) status = write_item_buffer(out, &ext->data.buffered_item_bridge.buffer);
             break;
         case MC_JAVA_BUILDING_VARIANT_SORTER:
-            status = write_i16(out, ext->data.item_filter.sort_item);
+            if(class_is(block_entry(record->block_id), "Unloader") && record->revision != 1){
+                status = mc_buffer_write_u8(out, (uint8_t)(int8_t)ext->data.item_filter.sort_item);
+            }else{
+                status = write_i16(out, ext->data.item_filter.sort_item);
+                if(status == MC_OK && record->revision == 1)
+                    status = write_directional_buffer(out, &ext->data.directional_buffer.buffer);
+            }
             break;
         case MC_JAVA_BUILDING_VARIANT_DIRECTIONAL_UNLOADER:
             status = write_i16(out, ext->data.item_filter.sort_item);
             if(status == MC_OK) status = write_i16(out, ext->data.item_filter.offset);
             break;
         case MC_JAVA_BUILDING_VARIANT_DUCT:
-            status = mc_buffer_write_u8(out, ext->data.item_filter.rec_dir);
+            if(record->revision >= 1) status = mc_buffer_write_u8(out, ext->data.item_filter.rec_dir);
             break;
         case MC_JAVA_BUILDING_VARIANT_DUCT_JUNCTION:
             for(size_t i = 0; status == MC_OK && i < 4; i++){
@@ -968,7 +1030,7 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
             }
             break;
         case MC_JAVA_BUILDING_VARIANT_DUCT_ROUTER:
-            status = write_i16(out, ext->data.item_filter.sort_item);
+            if(record->revision >= 1) status = write_i16(out, ext->data.item_filter.sort_item);
             break;
         case MC_JAVA_BUILDING_VARIANT_MASS_DRIVER:
             status = write_i32(out, ext->data.mass_driver.link);
@@ -1010,10 +1072,11 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
         case MC_JAVA_BUILDING_VARIANT_FACTORY:
         case MC_JAVA_BUILDING_VARIANT_RECONSTRUCTOR:
             status = write_payload_value(out, &ext->data.factory.payload, true);
-            if(status == MC_OK) status = write_f32(out, ext->data.factory.progress);
+            if(status == MC_OK && (ext->variant == MC_JAVA_BUILDING_VARIANT_FACTORY || record->revision >= 1))
+                status = write_f32(out, ext->data.factory.progress);
             if(status == MC_OK && ext->variant == MC_JAVA_BUILDING_VARIANT_FACTORY) status = write_i16(out, ext->data.factory.plan);
-            if(status == MC_OK) status = write_nullable_vec(out, ext->data.factory.command_position, ext->data.factory.command_x, ext->data.factory.command_y);
-            if(status == MC_OK) status = mc_buffer_write_u8(out, ext->data.factory.command);
+            if(status == MC_OK && record->revision >= 2) status = write_nullable_vec(out, ext->data.factory.command_position, ext->data.factory.command_x, ext->data.factory.command_y);
+            if(status == MC_OK && record->revision >= 3) status = mc_buffer_write_u8(out, ext->data.factory.command);
             break;
         case MC_JAVA_BUILDING_VARIANT_ASSEMBLER:
             status = write_payload_value(out, &ext->data.assembler.payload, true);
@@ -1062,21 +1125,32 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
             status = write_payload_value(out, &ext->data.payload_only.payload, true);
             break;
         case MC_JAVA_BUILDING_VARIANT_TURRET:
-            status = write_f32(out, ext->data.turret.reload);
-            if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = write_f32(out, ext->data.turret.reload);
+                if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            }
             break;
         case MC_JAVA_BUILDING_VARIANT_ITEM_TURRET:
-            status = write_f32(out, ext->data.turret.reload);
-            if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = write_f32(out, ext->data.turret.reload);
+                if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            }
             if(status == MC_OK) status = mc_buffer_write_u8(out, ext->data.turret.ammo_count);
             for(size_t i = 0; status == MC_OK && i < ext->data.turret.ammo_count; i++){
-                status = write_i16(out, ext->data.turret.ammo[i].item_id);
+                if(record->revision < 2){
+                    if(ext->data.turret.ammo[i].item_id < -1 || ext->data.turret.ammo[i].item_id > INT8_MAX) return MC_INVALID_ARGUMENT;
+                    status = mc_buffer_write_u8(out, (uint8_t)ext->data.turret.ammo[i].item_id);
+                }else{
+                    status = write_i16(out, ext->data.turret.ammo[i].item_id);
+                }
                 if(status == MC_OK) status = write_i16(out, ext->data.turret.ammo[i].amount);
             }
             break;
         case MC_JAVA_BUILDING_VARIANT_CONTINUOUS_TURRET:
-            status = write_f32(out, ext->data.turret.reload);
-            if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            if(record->revision >= 1){
+                status = write_f32(out, ext->data.turret.reload);
+                if(status == MC_OK) status = write_f32(out, ext->data.turret.rotation);
+            }
             if(status == MC_OK && record->revision >= 3) status = write_f32(out, ext->data.turret.last_length);
             break;
         case MC_JAVA_BUILDING_VARIANT_ROTATING_TURRET:
@@ -1088,7 +1162,9 @@ static McStatus write_extension(McBuffer *out, const McJavaBuildingRecord *recor
             for(size_t i = 0; status == MC_OK && i < ext->data.build_turret.plan_count; i++) status = write_plan(out, &ext->data.build_turret.plans[i]);
             break;
         case MC_JAVA_BUILDING_VARIANT_PAYLOAD_TURRET:
-            status = write_payload_seq(out, ext->data.payload_turret.payloads, ext->data.payload_turret.payload_count);
+            status = write_f32(out, ext->data.payload_turret.reload);
+            if(status == MC_OK) status = write_f32(out, ext->data.payload_turret.rotation);
+            if(status == MC_OK) status = write_payload_seq(out, ext->data.payload_turret.payloads, ext->data.payload_turret.payload_count);
             break;
         case MC_JAVA_BUILDING_VARIANT_NONE:
             status = MC_OK;

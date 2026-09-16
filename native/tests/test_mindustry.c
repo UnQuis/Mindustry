@@ -1628,6 +1628,19 @@ static void test_java_building_codec(void){
     test_java_building_codec_roundtrip(&record);
     mc_java_building_record_destroy(&record);
 
+    record = test_java_record("basicAssemblerModule", 1);
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
+    record = test_java_record("deconstructor", 1);
+    record.extension.data.payload_deconstructor.progress = 0.61f;
+    record.extension.data.payload_deconstructor.accumulator_count = 2;
+    record.extension.data.payload_deconstructor.accumulators[0] = 0.25f;
+    record.extension.data.payload_deconstructor.accumulators[1] = 0.75f;
+    record.extension.data.payload_deconstructor.payload_present = false;
+    test_java_building_codec_roundtrip(&record);
+    mc_java_building_record_destroy(&record);
+
     record = test_java_record("tankAssembler", 1);
     record.extension.data.assembler.progress = 0.44f;
     record.extension.data.assembler.unit_count = 2;
